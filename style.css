@@ -1,7 +1,8 @@
 :root {
-    --primary-color: #ff9800;
-    --secondary-color: #5d4037;
-    --bg-gradient: linear-gradient(135deg, #fff5e6 0%, #ffcc80 100%);
+    --primary: #ff9800;
+    --brown: #6D4C41;
+    --skin: #ffccbc;
+    --bg: linear-gradient(135deg, #fff5e6 0%, #ffcc80 100%);
 }
 
 * {
@@ -9,83 +10,112 @@
     user-select: none; -webkit-tap-highlight-color: transparent;
 }
 
-html, body {
-    width: 100%; height: 100%; overflow: hidden; background: #222;
+body {
+    background: #222;
+    font-family: 'Arial Black', 'Hiragino Kaku Gothic ProN', sans-serif;
+    height: 100vh; width: 100vw;
     display: flex; justify-content: center; align-items: center;
+    overflow: hidden;
 }
 
 #game-container {
     position: relative;
-    width: 100%; max-width: 500px; height: 100dvh;
-    background: var(--bg-gradient);
-    overflow: hidden; touch-action: none;
+    width: 100%; max-width: 500px;
+    height: 100%; max-height: 850px;
+    background: var(--bg);
+    overflow: hidden;
 }
 
+/* Canvasを最前面（UIの下）に配置し、ポインターイベントをスルーさせる */
 #effect-canvas {
-    position: absolute; top: 0; left: 0;
+    position: absolute;
+    top: 0; left: 0;
     width: 100%; height: 100%;
-    z-index: 5; pointer-events: none;
+    z-index: 5;
+    pointer-events: none; /* 下のボタンやタップエリアにイベントを通す */
 }
 
 .screen {
-    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
     display: none; flex-direction: column; justify-content: center; align-items: center;
-    z-index: 10; padding: 20px; text-align: center;
+    z-index: 10; padding: 20px;
 }
 
-.screen.active { display: flex; }
+.screen.active { display: flex; animation: fadeIn 0.3s ease; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 .game-title {
-    font-size: 2.5rem; color: var(--secondary-color);
-    text-shadow: 2px 2px 0 #fff; margin-bottom: 40px;
+    font-size: 2.8rem; color: var(--brown);
+    text-shadow: 3px 3px 0 #fff; line-height: 1.1; margin-bottom: 40px;
+    text-align: center;
 }
 
 .main-button {
-    padding: 15px 40px; font-size: 1.5rem;
-    background: var(--primary-color); color: white;
-    border: none; border-radius: 50px; box-shadow: 0 6px 0 #e65100;
+    padding: 20px 60px; font-size: 1.8rem; font-weight: bold;
+    background: var(--primary); color: white;
+    border: none; border-radius: 60px;
+    box-shadow: 0 8px 0 #e65100; cursor: pointer;
 }
+.main-button:active { transform: translateY(4px); box-shadow: 0 4px 0 #e65100; }
 
 .hud {
-    position: absolute; top: 20px; width: 100%;
+    position: absolute; top: 30px; width: 100%;
     display: flex; justify-content: space-around;
-    font-size: 1.2rem; font-weight: bold; color: var(--secondary-color);
+    font-size: 1.5rem; color: var(--brown); font-weight: bold;
 }
 
 #butt-target {
-    position: relative; width: 260px; height: 200px;
+    position: relative; width: 300px; height: 200px;
     display: flex; justify-content: center; align-items: center;
+    margin-top: -100px;
 }
 
 .cheek {
-    width: 120px; height: 120px; background: #ffccbc;
+    width: 130px; height: 130px; background: var(--skin);
     border-radius: 50%; box-shadow: inset -5px -5px 15px rgba(0,0,0,0.1);
 }
-
 .cheek.left { margin-right: -15px; }
 .cheek.right { margin-left: -15px; }
 
 #tap-area {
-    position: absolute; width: 80px; height: 100px;
-    z-index: 25; cursor: pointer;
+    position: absolute; width: 100px; height: 150px;
+    z-index: 30; cursor: pointer;
+    /* background: rgba(0,0,0,0.1); */ /* デバッグ時はここをON */
 }
 
-.instruction { margin-top: 20px; font-weight: bold; color: #795548; animation: flash 1s infinite; }
-@keyframes flash { 50% { opacity: 0.3; } }
+.instruction {
+    margin-top: 30px; font-size: 1.2rem; font-weight: bold;
+    color: var(--brown); animation: blink 1s infinite;
+}
+@keyframes blink { 50% { opacity: 0.3; } }
 
-.final-score { font-size: 4rem; color: var(--primary-color); }
+#ending-img-wrap {
+    width: 200px; height: 200px; background: #fff;
+    border-radius: 20px; overflow: hidden; margin-bottom: 20px;
+}
+#ending-img { width: 100%; height: 100%; object-fit: cover; }
+
+.final-score { font-size: 5rem; color: var(--primary); text-shadow: 3px 3px 0 #fff; }
 .rank-name {
-    font-size: 1.5rem; margin: 10px 0 20px;
-    background: var(--secondary-color); color: white;
-    padding: 5px 20px; border-radius: 20px;
+    font-size: 1.8rem; padding: 10px 30px;
+    background: var(--brown); color: white;
+    border-radius: 50px; margin: 20px 0;
 }
 
+.score-display { margin-top: 15px; font-weight: bold; color: var(--brown); }
+
+.shake { animation: shakeAnim 0.05s infinite; }
+@keyframes shakeAnim {
+    0% { transform: translate(3px, 3px); }
+    100% { transform: translate(-3px, -3px); }
+}
+
+/* スコア浮き上がり演出 */
 .score-up {
-    position: absolute; font-size: 2rem; font-weight: bold;
-    color: var(--secondary-color); pointer-events: none;
-    animation: float 0.5s ease-out forwards;
+    position: absolute; font-size: 2.5rem; font-weight: bold;
+    color: var(--brown); text-shadow: 2px 2px 0 #fff;
+    pointer-events: none; z-index: 100;
+    animation: scoreFloat 0.6s ease-out forwards;
 }
-@keyframes float { 100% { transform: translateY(-80px); opacity: 0; } }
-
-.shake { animation: shake 0.05s infinite; }
-@keyframes shake { 0% { transform: translate(2px, 2px); } 100% { transform: translate(-2px, -2px); } }
+@keyframes scoreFloat { 100% { transform: translateY(-120px); opacity: 0; } }
