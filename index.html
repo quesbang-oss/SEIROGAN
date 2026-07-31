@@ -8,6 +8,7 @@
 </head>
 <body>
     <div id="game-container">
+        <!-- 物理演算Canvas -->
         <canvas id="effect-canvas"></canvas>
 
         <!-- タイトル画面 -->
@@ -27,9 +28,10 @@
             <div id="butt-target">
                 <div class="cheek left"></div>
                 <div class="cheek right"></div>
-                <div class="tap-area"></div>
+                <!-- このエリアがお尻の穴の座標基準になる -->
+                <div id="tap-area"></div>
             </div>
-            <div class="instruction">連打でキバれ！</div>
+            <div class="instruction">ココを連打！！</div>
         </div>
 
         <!-- 結果画面 -->
@@ -39,7 +41,6 @@
             </div>
             <h2 class="result-label">RESULT</h2>
             <div class="final-score" id="final-score">0</div>
-            <div class="rank-label">称号</div>
             <div class="rank-name" id="rank-name">赤ちゃん</div>
             <div class="result-high-score">HIGH SCORE: <span id="result-high-score">0</span></div>
             <button id="btn-retry" class="main-button">RETRY</button>
