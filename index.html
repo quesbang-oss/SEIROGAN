@@ -1,228 +1,50 @@
-:root {
-    --primary-color: #ff9800;
-    --secondary-color: #795548;
-    --bg-gradient: linear-gradient(135deg, #fce4ec 0%, #ffe0b2 100%);
-    --font-main: 'Arial Black', 'Hiragino Kaku Gothic ProN', sans-serif;
-}
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>THE うんちんぐすたいる</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="effect-canvas"></canvas>
 
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-    user-select: none;
-    -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
-}
+        <!-- タイトル画面 -->
+        <div id="screen-title" class="screen active">
+            <h1 class="game-title">THE<br>うんちんぐすたいる</h1>
+            <button id="btn-start" class="main-button">START</button>
+            <div class="high-score-display">HIGH SCORE: <span id="title-high-score">0</span></div>
+        </div>
 
-body {
-    background: var(--bg-gradient);
-    font-family: var(--font-main);
-    overflow: hidden;
-    height: 100vh;
-    width: 100vw;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    color: var(--secondary-color);
-}
+        <!-- ゲーム画面 -->
+        <div id="screen-game" class="screen">
+            <div class="hud">
+                <div class="timer">TIME: <span id="time-left">10.0</span></div>
+                <div class="current-score">SCORE: <span id="score-val">0</span></div>
+            </div>
+            
+            <div id="butt-target">
+                <div class="cheek left"></div>
+                <div class="cheek right"></div>
+                <div class="tap-area"></div>
+            </div>
+            <div class="instruction">連打でキバれ！</div>
+        </div>
 
-#game-container {
-    position: relative;
-    width: 100%;
-    max-width: 500px;
-    height: 100%;
-    max-height: 800px;
-    background: rgba(255, 255, 255, 0.2);
-    box-shadow: 0 0 20px rgba(0,0,0,0.1);
-    overflow: hidden;
-}
-
-#effect-canvas {
-    position: absolute;
-    top: 0;
-    left: 0;
-    z-index: 5;
-    pointer-events: none;
-}
-
-.screen {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    display: none;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    z-index: 10;
-    padding: 20px;
-    text-align: center;
-    opacity: 0;
-    transition: opacity 0.5s ease;
-}
-
-.screen.active {
-    display: flex;
-    opacity: 1;
-}
-
-/* タイトル画面 */
-.game-title {
-    font-size: 3rem;
-    color: var(--secondary-color);
-    text-shadow: 3px 3px 0px #fff, 6px 6px 0px var(--primary-color);
-    margin-bottom: 50px;
-    line-height: 1.2;
-    animation: titleWobble 2s infinite ease-in-out;
-}
-
-@keyframes titleWobble {
-    0%, 100% { transform: scale(1) rotate(-2deg); }
-    50% { transform: scale(1.05) rotate(2deg); }
-}
-
-.main-button {
-    padding: 15px 40px;
-    font-size: 1.5rem;
-    background: var(--primary-color);
-    color: white;
-    border: none;
-    border-radius: 50px;
-    cursor: pointer;
-    box-shadow: 0 5px 0 #e65100;
-    transition: transform 0.1s, box-shadow 0.1s;
-    font-family: inherit;
-    z-index: 100;
-}
-
-.main-button:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 7px 0 #e65100;
-}
-
-.main-button:active {
-    transform: translateY(3px);
-    box-shadow: 0 2px 0 #e65100;
-}
-
-/* ゲーム画面 */
-.hud {
-    position: absolute;
-    top: 20px;
-    width: 100%;
-    display: flex;
-    justify-content: space-around;
-    font-size: 1.2rem;
-    z-index: 20;
-    font-weight: bold;
-}
-
-#butt-target {
-    position: relative;
-    width: 300px;
-    height: 200px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    margin-top: -50px;
-    transition: transform 0.05s;
-}
-
-.cheek {
-    width: 140px;
-    height: 140px;
-    background: #ffccbc;
-    border-radius: 50%;
-    box-shadow: inset -10px -10px 20px rgba(0,0,0,0.1), 0 10px 15px rgba(0,0,0,0.05);
-}
-
-.cheek.left { margin-right: -20px; }
-.cheek.right { margin-left: -20px; }
-
-.tap-area {
-    position: absolute;
-    width: 100px;
-    height: 150px;
-    z-index: 25;
-    cursor: pointer;
-}
-
-.instruction {
-    margin-top: 30px;
-    font-size: 1.2rem;
-    background: rgba(255,255,255,0.5);
-    padding: 5px 15px;
-    border-radius: 20px;
-    animation: flash 1s infinite;
-}
-
-@keyframes flash {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
-}
-
-/* 結果画面 */
-#ending-image-container {
-    width: 200px;
-    height: 200px;
-    margin-bottom: 20px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    background: rgba(255,255,255,0.3);
-    border-radius: 20px;
-    overflow: hidden;
-}
-
-#ending-img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.final-score {
-    font-size: 4rem;
-    color: var(--primary-color);
-    text-shadow: 2px 2px 0 #fff;
-    margin: 10px 0;
-}
-
-.rank-label { font-size: 1rem; color: #8d6e63; }
-.rank-name {
-    font-size: 2rem;
-    color: #5d4037;
-    margin-bottom: 30px;
-    background: #fff;
-    padding: 10px 20px;
-    border-radius: 10px;
-    box-shadow: 0 4px 0 rgba(0,0,0,0.1);
-}
-
-.shake {
-    animation: shakeAnim 0.1s infinite;
-}
-
-@keyframes shakeAnim {
-    0% { transform: translate(0, 0); }
-    25% { transform: translate(4px, 4px); }
-    50% { transform: translate(-4px, 0); }
-    75% { transform: translate(2px, -4px); }
-    100% { transform: translate(0, 0); }
-}
-
-.score-up {
-    position: absolute;
-    color: var(--secondary-color);
-    font-weight: bold;
-    font-size: 1.8rem;
-    pointer-events: none;
-    z-index: 1000;
-    text-shadow: 2px 2px 0 #fff;
-    animation: scoreFloat 0.6s ease-out forwards;
-}
-
-@keyframes scoreFloat {
-    0% { transform: translateY(0) scale(1); opacity: 1; }
-    100% { transform: translateY(-80px) scale(1.5); opacity: 0; }
-}
+        <!-- 結果画面 -->
+        <div id="screen-result" class="screen">
+            <div id="ending-image-container">
+                <img id="ending-img" src="assets/ending.png" alt="ENDING" onerror="this.style.display='none'">
+            </div>
+            <h2 class="result-label">RESULT</h2>
+            <div class="final-score" id="final-score">0</div>
+            <div class="rank-label">称号</div>
+            <div class="rank-name" id="rank-name">赤ちゃん</div>
+            <div class="result-high-score">HIGH SCORE: <span id="result-high-score">0</span></div>
+            <button id="btn-retry" class="main-button">RETRY</button>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
