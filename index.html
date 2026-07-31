@@ -8,40 +8,47 @@
 </head>
 <body>
     <div id="game-container">
-        <!-- 描画層：全ての演出はここ -->
+        <!-- 演出用Canvas（最前面） -->
         <canvas id="effect-canvas"></canvas>
 
-        <!-- UI層：タイトル -->
+        <!-- タイトル画面 -->
         <div id="screen-title" class="screen active">
-            <h1 class="game-title">THE<br>うんちんぐすたいる</h1>
+            <h1 class="game-title">THE<br><span>うんちんぐすたいる</span></h1>
+            <div class="title-decor">💩✨</div>
             <button id="btn-start" class="main-button">START</button>
-            <div class="score-display">HIGH SCORE: <span id="title-high-score">0</span></div>
+            <div class="high-score-display">HIGH SCORE: <span id="title-high-score">0</span></div>
         </div>
 
-        <!-- UI層：ゲーム中 -->
+        <!-- ゲーム画面 -->
         <div id="screen-game" class="screen">
             <div class="hud">
                 <div class="hud-item">TIME: <span id="time-left">10.0</span></div>
                 <div class="hud-item">SCORE: <span id="score-val">0</span></div>
             </div>
+            
             <div id="butt-target">
                 <div class="cheek left"></div>
                 <div class="cheek right"></div>
-                <!-- 実際のクリック判定エリア -->
+                <!-- ここがお尻の穴の座標 -->
+                <div id="anus"></div>
                 <div id="tap-area"></div>
             </div>
+
             <div class="instruction">連打でキバれ！</div>
         </div>
 
-        <!-- UI層：結果画面 -->
+        <!-- 結果画面 -->
         <div id="screen-result" class="screen">
-            <div id="ending-img-wrap">
-                <img id="ending-img" src="assets/ending.png" alt="ENDING" onerror="this.style.opacity='0'">
+            <div id="ending-container">
+                <img id="ending-img" src="assets/ending.png" alt="ENDING" onerror="this.style.display='none'">
+                <div class="rank-badge">称号確定!!</div>
             </div>
-            <h2 class="res-label">RESULT</h2>
-            <div id="final-score" class="final-score">0</div>
-            <div id="rank-name" class="rank-name">赤ちゃん</div>
-            <div class="score-display">HIGH SCORE: <span id="result-high-score">0</span></div>
+            <div class="result-score-box">
+                <div class="res-label">SCORE</div>
+                <div class="final-score" id="final-score">0</div>
+            </div>
+            <div class="rank-name" id="rank-name">赤ちゃん</div>
+            <div class="result-high-score">HIGH SCORE: <span id="result-high-score">0</span></div>
             <button id="btn-retry" class="main-button">RETRY</button>
         </div>
     </div>
