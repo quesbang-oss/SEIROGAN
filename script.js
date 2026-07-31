@@ -1,269 +1,206 @@
 /**
- * THE うんちんぐすたいる - プロ仕様完全版
+ * THE うんちんぐすたいる - 物理拘束強化版
  */
 
 const CONFIG = {
     gameDuration: 10,
-    gravity: 0.6,
-    friction: 0.95,
-    bounce: 0.4,
-    segmentDist: 12, // 連結の間隔
-    pooWidth: 24,    // 太さ
+    gravity: 0.7,
+    friction: 0.96,
+    bounce: 0.3,
+    subSteps: 12,      // 物理演算の反復回数（これが多いほど分離しない）
+    segmentDist: 10,   // 節の間の長さ
+    thickness: 22,     // 太さ
     titles: []
 };
 
 // 称号データ生成
-const rawTitles = [
-    "赤ちゃん", "よちよち", "おむつ卒業", "トイレの練習生", "一人前のきばり",
-    "快便ルーキー", "どっさり見習い", "ブリブリ平民", "黄金の右尻", "排出力の目覚め",
-    "トイレの用心棒", "スッキリ騎士", "ウォシュレットの友", "便座の支配者", "紙を惜しまぬ者",
-    "残便感ゼロ", "疾風怒濤の排出", "茶色の閃光", "マグナム・プープ", "プリッツ・マスター",
-    "全自動きばり機", "大陸の創造主", "トイレの賢者", "聖なる排便", "不屈の肛門",
-    "流星の如く", "重力への挑戦者", "ブリリアント・ベン", "ミラクル・ドロップ", "黄金郷の門番",
-    "運の極み", "排出王", "ケツの錬金術師", "茶色い宝石職人", "無限の残便",
-    "トイレを壊し者", "銀河鉄道の夜（トイレ）", "便意の魔術師", "ハイパー・スクワット", "音速のきばり",
-    "伝説のウンチスト", "神の領域のきばり", "終焉の排出", "真実のトイレ", "宇宙の深淵なるベン",
-    "概念としてのウンチ", "ビッグバン・プープ", "超越者", "次元の裂け目の尻", "トイレとの合一",
-    "THE うんちんぐすたいる"
-];
-for(let i=0; i<=50; i++) {
-    CONFIG.titles.push({ score: i * 20, name: rawTitles[i] || "神" });
-}
+const rawTitles = ["赤ちゃん", "よちよち", "おむつ卒業", "トイレの練習生", "一人前のきばり", "快便ルーキー", "どっさり見習い", "ブリブリ平民", "黄金の右尻", "排出力の目覚め", "トイレの用心棒", "スッキリ騎士", "ウォシュレットの友", "便座の支配者", "紙を惜しまぬ者", "残便感ゼロ", "疾風怒濤の排出", "茶色の閃光", "マグナム・プープ", "プリッツ・マスター", "全自動きばり機", "大陸の創造主", "トイレの賢者", "聖なる排便", "不屈の肛門", "流星の如く", "重力への挑戦者", "ブリリアント・ベン", "ミラクル・ドロップ", "黄金郷の門番", "運の極み", "排出王", "ケツの錬金術師", "茶色い宝石職人", "無限の残便", "トイレを壊し者", "銀河鉄道の夜（トイレ）", "便意の魔術師", "ハイパー・スクワット", "音速のきばり", "伝説のウンチスト", "神の領域のきばり", "終焉の排出", "真実のトイレ", "宇宙の深淵なるベン", "概念としてのウンチ", "ビッグバン・プープ", "超越者", "次元の裂け目の尻", "トイレとの合一", "THE うんちんぐすたいる"];
+for(let i=0; i<=50; i++) CONFIG.titles.push({ score: i * 20, name: rawTitles[i] || "神" });
 
 let state = {
-    currentScreen: 'title',
     score: 0,
-    highScore: 0,
+    highScore: localStorage.getItem('unching_highscore') || 0,
     timeLeft: 0,
     isPlaying: false,
-    pooChains: [], // 連結オブジェクト
+    chains: [],
     particles: [],
     lastTime: 0
 };
 
 const canvas = document.getElementById('effect-canvas');
 const ctx = canvas.getContext('2d');
-const screens = {
-    title: document.getElementById('screen-title'),
-    game: document.getElementById('screen-game'),
-    result: document.getElementById('screen-result')
-};
-const scoreVal = document.getElementById('score-val');
-const timeLeftVal = document.getElementById('time-left');
 const gameContainer = document.getElementById('game-container');
 
-// --- 物理クラス ---
+// --- 物理エンジン部分 ---
 
-class PooNode {
+class Node {
     constructor(x, y) {
-        this.x = x;
-        this.y = y;
-        this.oldX = x;
-        this.oldY = y;
+        this.x = x; this.y = y;
+        this.oldX = x; this.oldY = y;
     }
 }
 
-class PooChain {
-    constructor(startX, startY, length) {
+class Chain {
+    constructor(x, y, segments) {
         this.nodes = [];
-        this.length = Math.max(3, Math.floor(length / 2)); // スコアに応じた長さ
-        this.color = '#795548';
-        this.chaosOffset = Math.random() * 1000;
-        
-        for (let i = 0; i < this.length; i++) {
-            // 最初は少しずつ下にずらして生成
-            this.nodes.push(new PooNode(startX + (Math.random()-0.5)*10, startY + i * 2));
+        for (let i = 0; i < segments; i++) {
+            this.nodes.push(new Node(x, y + i));
         }
-        
-        // 初速（排出の勢い）
-        const forceX = (Math.random() - 0.5) * 30;
-        const forceY = 15 + Math.random() * 20;
-        this.nodes.forEach(n => {
-            n.oldX -= forceX;
-            n.oldY -= forceY;
+        // 初速（排出インパクト）
+        const angle = (Math.PI / 2) + (Math.random() - 0.5) * 0.5; // ほぼ真下
+        const force = 15 + Math.random() * 15;
+        this.nodes.forEach((n, i) => {
+            n.oldX -= Math.cos(angle) * force * (1 - i/segments);
+            n.oldY -= Math.sin(angle) * force * (1 - i/segments);
         });
     }
 
     update() {
-        // 各ノードの移動 (Verlet積分)
-        for (let i = 0; i < this.nodes.length; i++) {
-            let n = this.nodes[i];
-            let vx = (n.x - n.oldX) * CONFIG.friction;
-            let vy = (n.y - n.oldY) * CONFIG.friction;
-            
-            // カオスな揺れ
-            vx += Math.sin(Date.now() * 0.01 + this.chaosOffset + i) * 0.5;
-
-            n.oldX = n.x;
-            n.oldY = n.y;
+        // 1. 積分（移動）
+        this.nodes.forEach(n => {
+            const vx = (n.x - n.oldX) * CONFIG.friction;
+            const vy = (n.y - n.oldY) * CONFIG.friction;
+            n.oldX = n.x; n.oldY = n.y;
             n.x += vx;
             n.y += vy + CONFIG.gravity;
+        });
 
-            // 地面バウンド
-            if (n.y > canvas.height - 10) {
-                n.y = canvas.height - 10;
-                n.oldY = n.y + vy * CONFIG.bounce;
-            }
-            // 壁
-            if (n.x < 10) { n.x = 10; n.oldX = n.x + vx * CONFIG.bounce; }
-            if (n.x > canvas.width - 10) { n.x = canvas.width - 10; n.oldX = n.x + vx * CONFIG.bounce; }
-        }
-
-        // 連結拘束（スティック）
-        for (let j = 0; j < 5; j++) { // 精度のため5回反復
+        // 2. 拘束解決（サブステップ実行で絶対分離させない）
+        for (let s = 0; s < CONFIG.subSteps; s++) {
             for (let i = 0; i < this.nodes.length - 1; i++) {
-                let n1 = this.nodes[i];
-                let n2 = this.nodes[i + 1];
-                let dx = n2.x - n1.x;
-                let dy = n2.y - n1.y;
-                let dist = Math.sqrt(dx * dx + dy * dy);
-                let diff = (CONFIG.segmentDist - dist) / dist;
-                let offsetX = dx * diff * 0.5;
-                let offsetY = dy * diff * 0.5;
-                n1.x -= offsetX;
-                n1.y -= offsetY;
-                n2.x += offsetX;
-                n2.y += offsetY;
+                const n1 = this.nodes[i];
+                const n2 = this.nodes[i+1];
+                const dx = n2.x - n1.x;
+                const dy = n2.y - n1.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                const error = (dist - CONFIG.segmentDist) / dist;
+                
+                // 振り子的な連結維持
+                n1.x += dx * error * 0.5;
+                n1.y += dy * error * 0.5;
+                n2.x -= dx * error * 0.5;
+                n2.y -= dy * error * 0.5;
             }
+            
+            // 地面・壁の衝突もサブステップ内で処理（めり込み防止）
+            this.nodes.forEach(n => {
+                if (n.y > canvas.height - 10) n.y = canvas.height - 10;
+                if (n.x < 10) n.x = 10;
+                if (n.x > canvas.width - 10) n.x = canvas.width - 10;
+            });
         }
     }
 
-    draw(ctx) {
-        if (this.nodes.length < 2) return;
-
-        ctx.lineJoin = 'round';
-        ctx.lineCap = 'round';
-        ctx.strokeStyle = this.color;
-        ctx.lineWidth = CONFIG.pooWidth;
-
+    draw() {
         ctx.beginPath();
+        ctx.lineWidth = CONFIG.thickness;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = '#6D4C41';
+        
         ctx.moveTo(this.nodes[0].x, this.nodes[0].y);
         for (let i = 1; i < this.nodes.length; i++) {
-            // ベジェ曲線で滑らかに連結
-            const xc = (this.nodes[i].x + this.nodes[i - 1].x) / 2;
-            const yc = (this.nodes[i].y + this.nodes[i - 1].y) / 2;
-            ctx.quadraticCurveTo(this.nodes[i - 1].x, this.nodes[i - 1].y, xc, yc);
+            // 滑らかに補完
+            const xc = (this.nodes[i].x + this.nodes[i-1].x) / 2;
+            const yc = (this.nodes[i].y + this.nodes[i-1].y) / 2;
+            ctx.quadraticCurveTo(this.nodes[i-1].x, this.nodes[i-1].y, xc, yc);
         }
         ctx.stroke();
 
-        // テカリの演出
+        // 照り返し（ヌルヌル感）
+        ctx.beginPath();
+        ctx.lineWidth = CONFIG.thickness / 2.5;
         ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-        ctx.lineWidth = CONFIG.pooWidth / 3;
+        ctx.moveTo(this.nodes[0].x - 2, this.nodes[0].y);
+        for (let i = 1; i < this.nodes.length; i++) {
+            ctx.lineTo(this.nodes[i].x - 2, this.nodes[i].y);
+        }
         ctx.stroke();
     }
 }
 
 class Particle {
     constructor(x, y) {
-        this.x = x;
-        this.y = y;
-        this.size = Math.random() * 10 + 5;
-        this.vx = (Math.random() - 0.5) * 15;
-        this.vy = (Math.random() - 0.5) * 15;
+        this.x = x; this.y = y;
+        this.vx = (Math.random()-0.5)*10;
+        this.vy = (Math.random()-0.5)*10;
         this.life = 1.0;
+        this.size = Math.random()*8 + 2;
     }
     update() {
-        this.x += this.vx;
-        this.y += this.vy;
-        this.vy += CONFIG.gravity;
-        this.life -= 0.02;
+        this.x += this.vx; this.y += this.vy;
+        this.vy += 0.5; this.life -= 0.03;
     }
-    draw(ctx) {
-        ctx.fillStyle = `rgba(141, 110, 99, ${this.life})`;
+    draw() {
+        ctx.fillStyle = `rgba(109, 76, 65, ${this.life})`;
         ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI*2);
         ctx.fill();
     }
 }
 
-// --- システムロジック ---
+// --- ゲーム管理 ---
 
 function resize() {
     canvas.width = gameContainer.clientWidth;
     canvas.height = gameContainer.clientHeight;
 }
 
-function loadHighScore() {
-    state.highScore = localStorage.getItem('unching_highscore') || 0;
-    document.getElementById('title-high-score').innerText = state.highScore;
-    document.getElementById('result-high-score').innerText = state.highScore;
-}
-
 function startGame() {
     state.score = 0;
     state.timeLeft = CONFIG.gameDuration;
-    state.pooChains = [];
-    state.particles = [];
     state.isPlaying = true;
-    scoreVal.innerText = '0';
+    state.chains = [];
+    state.particles = [];
+    document.getElementById('score-val').innerText = '0';
     showScreen('game');
 }
 
-function showScreen(name) {
-    Object.keys(screens).forEach(s => screens[s].classList.remove('active'));
-    screens[name].classList.add('active');
+function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(`screen-${id}`).classList.add('active');
 }
 
-function createScoreEffect(x, y) {
+function tapEffect(x, y) {
     const el = document.createElement('div');
     el.className = 'score-up';
     el.innerText = '+1';
-    el.style.left = `${x}px`;
-    el.style.top = `${y}px`;
+    el.style.left = `${x}px`; el.style.top = `${y}px`;
     document.body.appendChild(el);
-    setTimeout(() => el.remove(), 600);
-}
+    setTimeout(() => el.remove(), 500);
 
-// タップイベント
-document.querySelector('.tap-area').addEventListener('pointerdown', (e) => {
-    if (!state.isPlaying) return;
-    
-    state.score++;
-    scoreVal.innerText = state.score;
-
-    // シェイク
     gameContainer.classList.add('shake');
     setTimeout(() => gameContainer.classList.remove('shake'), 50);
+}
 
-    // おしりアクション
-    document.getElementById('butt-target').style.transform = 'scale(0.8) translateY(20px)';
-    setTimeout(() => {
-        document.getElementById('butt-target').style.transform = 'scale(1)';
-    }, 50);
-
-    createScoreEffect(e.clientX, e.clientY);
-
+document.querySelector('.tap-area').addEventListener('pointerdown', (e) => {
+    if (!state.isPlaying) return;
+    state.score++;
+    document.getElementById('score-val').innerText = state.score;
+    tapEffect(e.clientX, e.clientY);
+    
     // 排出パーティクル
-    for(let i=0; i<5; i++) {
-        state.particles.push(new Particle(canvas.width/2, canvas.height/2));
-    }
+    for(let i=0; i<3; i++) state.particles.push(new Particle(canvas.width/2, canvas.height/2));
 });
 
 function endGame() {
     state.isPlaying = false;
     
-    // 排出演出：スコアに応じて「連結したブツ」を生成
-    // スコアが多いほど、本数が増え、一本あたりの長さも伸びる
-    const numChains = Math.min(10, Math.ceil(state.score / 10));
-    for (let i = 0; i < numChains; i++) {
+    // 排出：スコアに応じて「絶対に分離しない長い塊」を出す
+    const count = Math.min(15, Math.ceil(state.score / 15));
+    for (let i = 0; i < count; i++) {
         setTimeout(() => {
-            const len = Math.min(30, Math.ceil(state.score / 5));
-            state.pooChains.push(new PooChain(canvas.width / 2, canvas.height / 2, len));
-        }, i * 150);
+            const segments = Math.min(25, Math.floor(state.score / 10) + 5);
+            state.chains.push(new Chain(canvas.width/2, canvas.height/2, segments));
+        }, i * 200);
     }
 
-    // ハイスコア更新
     if (state.score > state.highScore) {
         state.highScore = state.score;
         localStorage.setItem('unching_highscore', state.highScore);
     }
 
-    // 称号
-    let rank = CONFIG.titles[0].name;
-    for (const t of CONFIG.titles) {
-        if (state.score >= t.score) rank = t.name;
-    }
-
+    let rank = CONFIG.titles.find(t => state.score < t.score)?.name || "THE うんちんぐすたいる";
     document.getElementById('final-score').innerText = state.score;
     document.getElementById('rank-name').innerText = rank;
     document.getElementById('result-high-score').innerText = state.highScore;
@@ -271,45 +208,33 @@ function endGame() {
     setTimeout(() => showScreen('result'), 2000);
 }
 
-function gameLoop(time) {
-    const dt = time - state.lastTime;
-    state.lastTime = time;
+function loop(t) {
+    const dt = (t - state.lastTime) / 1000;
+    state.lastTime = t;
 
     if (state.isPlaying) {
-        state.timeLeft -= dt / 1000;
-        if (state.timeLeft <= 0) {
-            state.timeLeft = 0;
-            endGame();
-        }
-        timeLeftVal.innerText = state.timeLeft.toFixed(1);
+        state.timeLeft -= dt;
+        if (state.timeLeft <= 0) { state.timeLeft = 0; endGame(); }
+        document.getElementById('time-left').innerText = state.timeLeft.toFixed(1);
     }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // 連結ブツの更新・描画
-    state.pooChains.forEach(chain => {
-        chain.update();
-        chain.draw(ctx);
-    });
-
-    // パーティクルの更新・描画
+    state.chains.forEach(c => { c.update(); c.draw(); });
     for (let i = state.particles.length - 1; i >= 0; i--) {
-        const p = state.particles[i];
-        p.update();
-        p.draw(ctx);
-        if (p.life <= 0) state.particles.splice(i, 1);
+        state.particles[i].update();
+        state.particles[i].draw();
+        if (state.particles[i].life <= 0) state.particles.splice(i, 1);
     }
 
-    requestAnimationFrame(gameLoop);
+    requestAnimationFrame(loop);
 }
 
-// 起動
 window.addEventListener('load', () => {
     resize();
-    loadHighScore();
-    requestAnimationFrame(gameLoop);
+    document.getElementById('title-high-score').innerText = state.highScore;
+    requestAnimationFrame(loop);
 });
 window.addEventListener('resize', resize);
-
 document.getElementById('btn-start').addEventListener('click', startGame);
 document.getElementById('btn-retry').addEventListener('click', startGame);
