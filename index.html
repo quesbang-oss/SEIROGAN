@@ -8,33 +8,27 @@
 </head>
 <body>
     <div id="game-container">
-        <!-- 物理演算Canvas -->
         <canvas id="effect-canvas"></canvas>
 
-        <!-- タイトル画面 -->
         <div id="screen-title" class="screen active">
             <h1 class="game-title">THE<br>うんちんぐすたいる</h1>
             <button id="btn-start" class="main-button">START</button>
             <div class="high-score-display">HIGH SCORE: <span id="title-high-score">0</span></div>
         </div>
 
-        <!-- ゲーム画面 -->
         <div id="screen-game" class="screen">
             <div class="hud">
                 <div class="timer">TIME: <span id="time-left">10.0</span></div>
                 <div class="current-score">SCORE: <span id="score-val">0</span></div>
             </div>
-            
             <div id="butt-target">
                 <div class="cheek left"></div>
                 <div class="cheek right"></div>
-                <!-- このエリアがお尻の穴の座標基準になる -->
                 <div id="tap-area"></div>
             </div>
-            <div class="instruction">ココを連打！！</div>
+            <div class="instruction">連打でキバれ！</div>
         </div>
 
-        <!-- 結果画面 -->
         <div id="screen-result" class="screen">
             <div id="ending-image-container">
                 <img id="ending-img" src="assets/ending.png" alt="ENDING" onerror="this.style.display='none'">
