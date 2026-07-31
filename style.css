@@ -1,9 +1,7 @@
 :root {
     --primary-color: #ff9800;
     --secondary-color: #5d4037;
-    --accent-color: #795548;
     --bg-gradient: linear-gradient(135deg, #fff5e6 0%, #ffcc80 100%);
-    --font-main: 'Arial Black', 'Hiragino Kaku Gothic ProN', sans-serif;
 }
 
 * {
@@ -12,15 +10,17 @@
     box-sizing: border-box;
     user-select: none;
     -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #333; /* 外枠 */
 }
 
 body {
-    background: var(--bg-gradient);
-    font-family: var(--font-main);
-    overflow: hidden;
-    height: 100vh;
-    width: 100vw;
+    font-family: 'Arial Black', 'Hiragino Kaku Gothic ProN', sans-serif;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -30,19 +30,18 @@ body {
     position: relative;
     width: 100%;
     max-width: 500px;
-    height: 100%;
-    max-height: 800px;
-    background: rgba(255, 255, 255, 0.4);
+    height: 100dvh;
+    background: var(--bg-gradient);
     overflow: hidden;
-    box-shadow: 0 0 40px rgba(0,0,0,0.1);
-    display: flex;
-    flex-direction: column;
+    touch-action: none; /* スマホのズーム・スクロールを徹底阻止 */
 }
 
 #effect-canvas {
     position: absolute;
     top: 0;
     left: 0;
+    width: 100%;
+    height: 100%;
     z-index: 5;
     pointer-events: none;
 }
@@ -62,21 +61,13 @@ body {
     text-align: center;
 }
 
-.screen.active {
-    display: flex;
-    animation: fadeIn 0.4s ease-out forwards;
-}
-
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
+.screen.active { display: flex; }
 
 .game-title {
     font-size: 2.8rem;
     color: var(--secondary-color);
     text-shadow: 3px 3px 0px #fff;
-    margin-bottom: 40px;
+    margin-bottom: 50px;
     line-height: 1.1;
 }
 
@@ -87,13 +78,10 @@ body {
     color: white;
     border: none;
     border-radius: 50px;
-    cursor: pointer;
     box-shadow: 0 6px 0 #e65100;
-    font-family: inherit;
-    transition: transform 0.1s;
+    font-weight: bold;
 }
 
-.main-button:hover { transform: scale(1.05); }
 .main-button:active {
     transform: translateY(4px);
     box-shadow: 0 2px 0 #e65100;
@@ -101,11 +89,11 @@ body {
 
 .hud {
     position: absolute;
-    top: 20px;
+    top: env(safe-area-inset-top, 20px);
     width: 100%;
     display: flex;
     justify-content: space-around;
-    font-size: 1.2rem;
+    font-size: 1.3rem;
     font-weight: bold;
     color: var(--secondary-color);
     z-index: 20;
@@ -118,8 +106,7 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
-    margin-top: -100px;
-    z-index: 10;
+    margin-top: -60px; /* 少し上に配置 */
 }
 
 .cheek {
@@ -127,71 +114,54 @@ body {
     height: 130px;
     background: #ffccbc;
     border-radius: 50%;
-    box-shadow: inset -10px -10px 20px rgba(0,0,0,0.15);
+    box-shadow: inset -8px -8px 20px rgba(0,0,0,0.15);
 }
 
 .cheek.left { margin-right: -20px; }
 .cheek.right { margin-left: -20px; }
 
-.tap-area {
+#tap-area {
     position: absolute;
     width: 100px;
     height: 140px;
     z-index: 25;
-    cursor: pointer;
+    /* デバッグ用: background: rgba(0,0,0,0.1); */
 }
 
 .instruction {
     margin-top: 20px;
-    font-size: 1.1rem;
-    color: var(--accent-color);
-    background: rgba(255,255,255,0.6);
-    padding: 5px 15px;
-    border-radius: 20px;
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #795548;
     animation: flash 1s infinite;
 }
 
-@keyframes flash { 50% { opacity: 0.3; } }
+@keyframes flash { 50% { opacity: 0.2; } }
 
-#ending-image-container {
-    width: 180px;
-    height: 180px;
-    background: #fff;
-    border-radius: 20px;
-    margin-bottom: 20px;
-    overflow: hidden;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-}
-
-.final-score { font-size: 4.5rem; color: var(--primary-color); text-shadow: 2px 2px 0 #fff;}
+.final-score { font-size: 5rem; color: var(--primary-color); text-shadow: 3px 3px 0 #fff; }
 .rank-name {
     font-size: 1.8rem;
     margin: 10px 0 30px;
-    padding: 8px 25px;
     background: var(--secondary-color);
     color: white;
+    padding: 8px 25px;
     border-radius: 50px;
 }
 
-.shake { animation: shakeAnim 0.05s infinite; }
-@keyframes shakeAnim {
+.shake { animation: shakeEffect 0.05s infinite; }
+@keyframes shakeEffect {
     0% { transform: translate(3px, 3px); }
     100% { transform: translate(-3px, -3px); }
 }
 
 .score-up {
     position: absolute;
-    color: var(--secondary-color);
+    font-size: 2.5rem;
     font-weight: bold;
-    font-size: 2.2rem;
+    color: var(--secondary-color);
+    text-shadow: 2px 2px 0 #fff;
     pointer-events: none;
     z-index: 100;
-    text-shadow: 2px 2px 0 #fff;
     animation: scoreFloat 0.6s ease-out forwards;
 }
-
-@keyframes scoreFloat {
-    100% { transform: translateY(-120px) scale(1.2); opacity: 0; }
-}
+@keyframes scoreFloat { 100% { transform: translateY(-100px); opacity: 0; } }
