@@ -49,21 +49,22 @@ class Node {
         this.oldX = x; this.oldY = y;
     }
     update() {
-        let vx = (this.x - this.oldX) * CONFIG.friction;
-        let vy = (this.y - this.oldY) * CONFIG.friction;
-        this.oldX = this.x; this.oldY = this.y;
-        this.x += vx;
-        this.y += vy + CONFIG.gravity;
+    let vx = (this.x - this.oldX) * CONFIG.friction;
+    let vy = (this.y - this.oldY) * CONFIG.friction;
+    this.oldX = this.x; this.oldY = this.y;
+    this.x += vx;
+    this.y += vy + CONFIG.gravity;
 
-        // 床衝突
-        if (this.y > canvas.height - 15) {
-            this.y = canvas.height - 15;
-            this.oldY = this.y + vy * 0.4; 
-        }
-        // 壁
-        if (this.x < 15) this.x = 15;
-        if (this.x > canvas.width - 15) this.x = canvas.width - 15;
+    // 半径分（太さの半分）を考慮して跳ね返り判定
+    const r = CONFIG.capsuleWidth / 2;
+    if (this.y > canvas.height - r) {
+        this.y = canvas.height - r;
+        this.oldY = this.y + vy * 0.4; 
     }
+    // 左右の端で画像が切れないように余裕を持たせる
+    if (this.x < r) this.x = r;
+    if (this.x > canvas.width - r) this.x = r; // ここは canvas.width - r が正解
+}
 }
 
 // --- トレインクラス ---
@@ -170,8 +171,13 @@ class Particle {
 // --- システム ---
 
 function resize() {
-    canvas.width = gameContainer.clientWidth;
-    canvas.height = gameContainer.clientHeight;
+    // 親要素のサイズを正確に取得してCanvasに反映
+    const rect = gameContainer.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+    
+    // 高解像度ディスプレイ（Retina等）でのボケ防止
+    ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
 }
 
 function startGame() {
