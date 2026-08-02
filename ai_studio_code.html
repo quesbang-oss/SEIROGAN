@@ -1,0 +1,2242 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>正露丸2000 - ULTIMATE FESTIVAL</title>
+    <style>
+        :root { --gold: #d4af37; --red: #ff4444; --bg: #050505; }
+        * { box-sizing: border-box; }
+        body { margin: 0; background: #000; color: var(--gold); overflow: hidden; font-family: "MS Mincho", serif; touch-action: none; }
+        #wrapper { display: flex; justify-content: center; align-items: center; width: 100vw; height: 100vh; background: radial-gradient(circle, #1a150e 0%, #000 100%); }
+        canvas { background: #000; box-shadow: 0 0 50px rgba(212,175,55,0.2); border: 2px solid var(--gold); cursor: none; image-rendering: pixelated; }
+        #ui-layer { position: absolute; pointer-events: none; width: 600px; height: 800px; z-index: 10; }
+        .stat-box { position: absolute; right: 20px; top: 20px; text-align: right; text-shadow: 0 0 5px #000; }
+        .score-val { font-size: 32px; font-family: 'Courier New', Courier, monospace; color: #fff; transition: transform 0.1s; }
+        .score-pop { transform: scale(1.15); color: #ffd700 !important; }
+        #hp-bar-wrap { position: absolute; left: 20px; top: 20px; width: 200px; height: 14px; border: 2px solid var(--gold); background: #111; }
+        #hp-bar { height: 100%; width: 100%; background: linear-gradient(90deg, #f00, #ff6600); transition: width 0.15s; }
+        #combo-display { position: absolute; left: 20px; top: 50px; font-size: 24px; color: #fff; text-shadow: 0 0 10px #ffd700; opacity: 0; transition: opacity 0.2s; }
+        #combo-display.show { opacity: 1; }
+        #bomb-indicator { position: absolute; left: 20px; bottom: 30px; font-size: 14px; color: #ffd700; animation: bombBlink 0.5s infinite alternate; }
+        @keyframes bombBlink { from { opacity: 0.4; } to { opacity: 1; } }
+        #fps-display { position: absolute; right: 20px; bottom: 10px; font-size: 10px; color: #666; }
+        #overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.85); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 1000; opacity: 1; }
+        .btn-start { padding: 20px 60px; font-size: 28px; background: var(--gold); color: #000; border: none; cursor: pointer; font-weight: bold; clip-path: polygon(10% 0, 100% 0, 90% 100%, 0 100%); pointer-events: auto; }
+        .btn-start:hover { transform: scale(1.1); background: #fff; }
+        #msg { font-size: 48px; margin-bottom: 10px; text-shadow: 0 0 20px var(--gold); }
+        #damage-numbers { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+        .dmg-num { position: absolute; font-size: 18px; font-weight: bold; color: #ffd700; text-shadow: 0 0 8px #fff; animation: dmgFloat 0.8s forwards; }
+        .dmg-crit { color: #ff0044; font-size: 28px; }
+        @keyframes dmgFloat { 0% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-60px) scale(1.5); } }
+    </style>
+</head>
+<body>
+
+<div id="wrapper">
+    <div id="ui-layer">
+        <div id="hp-bar-wrap"><div id="hp-bar"></div></div>
+        <div id="combo-display">COMBO x<span id="combo-val">0</span></div>
+        <div id="control-hints" style="position:absolute; left:20px; bottom:30px; font-size:13px; line-height:1.6;">
+            <div id="attack-indicator" style="color:#00ffff;">攻撃 [Z]</div>
+            <div id="bomb-indicator" style="color:#ffd700;">ボム [X]</div>
+        </div>
+        <div class="stat-box">
+            <div style="font-size:12px; letter-spacing: 2px;">PERFORMANCE SCORE</div>
+            <div id="score" class="score-val">000000000</div>
+            <div id="multiplier" style="font-size:14px; color:#ffd700;">x1.0</div>
+        </div>
+        <div id="fps-display">FPS: --</div>
+        <div id="damage-numbers"></div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+    <!-- file:// でも動くよう HTMLAudio で BGM 再生 (fetch/WebAudio decode は不可) -->
+    <audio id="bgm-audio" loop preload="auto" src="music.mp3"></audio>
+    <div id="overlay">
+        <div id="msg">正露丸 2000</div>
+        <p id="sub-msg" style="letter-spacing: 5px; margin-bottom: 30px;">～ ULTIMATE FESTIVAL ARCADE ～<br><span style="font-size:14px;">攻撃[Z] ボム[X] 低速[Shift]</span></p>
+        <button id="start-btn" class="btn-start">服用開始 (START)</button>
+    </div>
+</div>
+
+<script>
+'use strict';
+
+/** file:// 直開き検出 — クロスCanvas/ImageBitmapはセキュリティエラーになる */
+const IS_FILE_PROTOCOL = location.protocol === 'file:';
+
+/* ================================================================
+   定数管理 (Magic Number禁止)
+   ================================================================ */
+const CONFIG = {
+    CANVAS_W: 600,
+    CANVAS_H: 800,
+    PLAYER_SPEED: 6.0,
+    PLAYER_SLOW: 2.8,
+    HITBOX: 1.5,
+    HITBOX_SQ: 12.25,          // (1.5+2)^2 近似
+    GRAZE: 35,
+    GRAZE_SQ: 1225,
+    GRAZE_INTERVAL: 8,
+    BPM: 155,
+    BOSS_MAX_HP: 10000,
+    BOMB_COUNT: 3,
+    PLAYER_SHOT_SPEED: 14,
+    PLAYER_SHOT_INTERVAL: 3,
+    PLAYER_SHOT_DAMAGE: 15,
+    BOSS_HIT_RADIUS: 50,
+    BOSS_HIT_RADIUS_SQ: 2500,
+    POOL: {
+        BULLET: 6000,
+        EFFECT: 2000,
+        LASER: 32,
+        SHOT: 256
+    },
+    COLORS: {
+        GOLD: '#d4af37',
+        BULLET: '#ffaa00',
+        BULLET_RAINBOW: ['#ff0000','#ff8800','#ffff00','#00ff00','#0088ff','#8800ff'],
+        PLAYER: '#00ffff',
+        LASER_GOLD: '#ffd700',
+        LASER_RAINBOW: ['#ff0044','#ff8800','#ffff00','#00ff88','#0088ff','#ff00ff']
+    },
+    CULL_MARGIN: 60,
+    TARGET_FPS: 60,
+    QUALITY: {
+        HIGH_FPS: 58,
+        LOW_FPS: 52,
+        SAMPLE_FRAMES: 30
+    },
+    COMBO_MILESTONES: [100, 300, 500, 1000],
+    BOSS_PHASES: [0.75, 0.50, 0.25],
+    FEVER_DURATION: 300,
+    FEVER_SCORE_MULT: 5
+};
+
+/* ================================================================
+   ユーティリティ (Math.hypot禁止 → 距離²比較)
+   ================================================================ */
+const Util = {
+    distSq(ax, ay, bx, by) {
+        const dx = ax - bx;
+        const dy = ay - by;
+        return dx * dx + dy * dy;
+    },
+    inBounds(x, y, w, h, margin) {
+        return x > -margin && x < w + margin && y > -margin && y < h + margin;
+    },
+    lerp(a, b, t) { return a + (b - a) * t; },
+    clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; },
+    rand(min, max) { return min + Math.random() * (max - min); },
+    randInt(min, max) { return (min + Math.random() * (max - min + 1)) | 0; },
+    hsvToRgb(h, s, v) {
+        const i = (h * 6) | 0;
+        const f = h * 6 - i;
+        const p = v * (1 - s);
+        const q = v * (1 - f * s);
+        const t = v * (1 - (1 - f) * s);
+        let r, g, b;
+        switch (i % 6) {
+            case 0: r = v; g = t; b = p; break;
+            case 1: r = q; g = v; b = p; break;
+            case 2: r = p; g = v; b = t; break;
+            case 3: r = p; g = q; b = v; break;
+            case 4: r = t; g = p; b = v; break;
+            default: r = v; g = p; b = q;
+        }
+        return `rgb(${(r*255)|0},${(g*255)|0},${(b*255)|0})`;
+    },
+    rainbowColor(frame, offset) {
+        return Util.hsvToRgb(((frame + offset) * 0.02) % 1, 1, 1);
+    }
+};
+
+/* ================================================================
+   オブジェクトプール基底
+   ================================================================ */
+class ObjectPool {
+    constructor(factory, size) {
+        this._factory = factory;
+        this._free = new Array(size);
+        this._active = [];
+        this._activeLen = 0;
+        for (let i = 0; i < size; i++) {
+            const obj = factory();
+            obj.active = false;
+            obj._pool = this;
+            this._free[i] = obj;
+        }
+        this._freeLen = size;
+    }
+
+    acquire() {
+        let obj;
+        if (this._freeLen > 0) {
+            obj = this._free[--this._freeLen];
+        } else {
+            obj = this._factory();
+            obj._pool = this;
+        }
+        obj.active = true;
+        this._active[this._activeLen++] = obj;
+        return obj;
+    }
+
+    release(obj) {
+        if (!obj.active) return;
+        for (let i = 0; i < this._activeLen; i++) {
+            if (this._active[i] === obj) {
+                this.releaseAt(i);
+                return;
+            }
+        }
+    }
+
+    /** 逆forループ中の安全な解放 (swap-remove) */
+    releaseAt(idx) {
+        const obj = this._active[idx];
+        if (!obj || !obj.active) return;
+        obj.active = false;
+        obj.reset();
+        this._free[this._freeLen++] = obj;
+        this._active[idx] = this._active[--this._activeLen];
+        this._active.length = this._activeLen;
+    }
+
+    releaseAll() {
+        for (let i = this._activeLen - 1; i >= 0; i--) {
+            const obj = this._active[i];
+            obj.active = false;
+            obj.reset();
+            this._free[this._freeLen++] = obj;
+        }
+        this._activeLen = 0;
+        this._active.length = 0;
+    }
+
+    get activeList() { return this._active; }
+    get activeCount() { return this._activeLen; }
+}
+
+/* ================================================================
+   FPS監視・可変品質
+   ================================================================ */
+class QualityManager {
+    constructor() {
+        this.level = 3;           // 0=最低 … 3=最高
+        this.particleMult = 1;
+        this.effectMult = 1;
+        this.bgDetail = 1;
+        this._frameTimes = new Float32Array(CONFIG.QUALITY.SAMPLE_FRAMES);
+        this._ftIdx = 0;
+        this._ftCount = 0;
+        this.avgFps = 60;
+        this._lastTime = performance.now();
+    }
+
+    tick(now) {
+        const dt = now - this._lastTime;
+        this._lastTime = now;
+        this._frameTimes[this._ftIdx] = dt;
+        this._ftIdx = (this._ftIdx + 1) % CONFIG.QUALITY.SAMPLE_FRAMES;
+        if (this._ftCount < CONFIG.QUALITY.SAMPLE_FRAMES) this._ftCount++;
+
+        let sum = 0;
+        for (let i = 0; i < this._ftCount; i++) sum += this._frameTimes[i];
+        const avgDt = sum / this._ftCount;
+        this.avgFps = avgDt > 0 ? 1000 / avgDt : 60;
+
+        if (this.avgFps < CONFIG.QUALITY.LOW_FPS && this.level > 0) {
+            this.level--;
+            this._applyLevel();
+        } else if (this.avgFps > CONFIG.QUALITY.HIGH_FPS && this.level < 3) {
+            this.level++;
+            this._applyLevel();
+        }
+    }
+
+    _applyLevel() {
+        const lv = this.level;
+        this.particleMult = [0.25, 0.5, 0.75, 1.0][lv];
+        this.effectMult = [0.3, 0.5, 0.8, 1.0][lv];
+        this.bgDetail = [0.4, 0.6, 0.85, 1.0][lv];
+    }
+
+    shouldSpawn(count) {
+        return Math.random() < this.particleMult * this.effectMult;
+    }
+
+    scaledCount(base) {
+        return Math.max(1, (base * this.particleMult * this.effectMult) | 0);
+    }
+}
+
+/* ================================================================
+   ImageBitmap / OffscreenCanvas 対応
+   ================================================================ */
+class RenderBackend {
+    constructor(width, height) {
+        this.width = width;
+        this.height = height;
+        // file:// では OffscreenCanvas への drawImage がエラーになるため通常Canvasのみ
+        this.useOffscreen = !IS_FILE_PROTOCOL && typeof OffscreenCanvas !== 'undefined';
+        this.bitmaps = {};
+        this._initSprites();
+        this.bgCanvas = document.createElement('canvas');
+        this.bgCanvas.width = width;
+        this.bgCanvas.height = height;
+        this.bgCtx = this.bgCanvas.getContext('2d');
+    }
+
+    _initSprites() {
+        const sizes = [4, 6, 8, 12];
+        for (let s = 0; s < sizes.length; s++) {
+            const r = sizes[s];
+            const c = document.createElement('canvas');
+            c.width = r * 2 + 2;
+            c.height = r * 2 + 2;
+            const cx = c.getContext('2d');
+            const grd = cx.createRadialGradient(r+1, r+1, 0, r+1, r+1, r);
+            grd.addColorStop(0, '#ffffff');
+            grd.addColorStop(0.5, '#ffaa00');
+            grd.addColorStop(1, 'rgba(255,100,0,0)');
+            cx.fillStyle = grd;
+            cx.beginPath();
+            cx.arc(r+1, r+1, r, 0, Math.PI * 2);
+            cx.fill();
+            this._storeBitmap('bullet_' + r, c);
+        }
+        this._storeBitmap('star', this._makeStarSprite());
+        this._storeBitmap('spark', this._makeSparkSprite());
+    }
+
+    _makeStarSprite() {
+        const c = document.createElement('canvas');
+        c.width = 8; c.height = 8;
+        const cx = c.getContext('2d');
+        cx.fillStyle = '#fff';
+        cx.fillRect(3, 0, 2, 8);
+        cx.fillRect(0, 3, 8, 2);
+        return c;
+    }
+
+    _makeSparkSprite() {
+        const c = document.createElement('canvas');
+        c.width = 6; c.height = 6;
+        const cx = c.getContext('2d');
+        cx.fillStyle = '#ffd700';
+        cx.fillRect(2, 0, 2, 6);
+        cx.fillRect(0, 2, 6, 2);
+        return c;
+    }
+
+    _storeBitmap(key, canvas) {
+        // file:// では createImageBitmap がセキュリティエラーを起こすため Canvas を直接使用
+        if (!IS_FILE_PROTOCOL && typeof createImageBitmap === 'function') {
+            createImageBitmap(canvas).then(bmp => { this.bitmaps[key] = bmp; }).catch(() => {
+                this.bitmaps[key] = canvas;
+            });
+        } else {
+            this.bitmaps[key] = canvas;
+        }
+    }
+
+    getBitmap(key) { return this.bitmaps[key] || null; }
+}
+
+/* ================================================================
+   スプライトバッチ描画
+   ================================================================ */
+class SpriteBatch {
+    constructor() {
+        this.batches = {};
+        this._keys = [];
+    }
+
+    clear() {
+        const batches = this.batches;
+        const keys = this._keys;
+        for (let i = 0, len = keys.length; i < len; i++) {
+            batches[keys[i]].length = 0;
+        }
+    }
+
+    add(key, x, y, scale, rotation) {
+        let batch = this.batches[key];
+        if (!batch) {
+            batch = [];
+            this.batches[key] = batch;
+            this._keys.push(key);
+        }
+        batch.push(x, y, scale || 1, rotation || 0);
+    }
+
+    flush(ctx, backend) {
+        const batches = this.batches;
+        const keys = this._keys;
+        for (let k = 0, kLen = keys.length; k < kLen; k++) {
+            const key = keys[k];
+            const batch = batches[key];
+            const bmp = backend.getBitmap(key);
+            if (!bmp || batch.length === 0) continue;
+            const hw = bmp.width * 0.5;
+            const hh = bmp.height * 0.5;
+            for (let i = 0, len = batch.length; i < len; i += 4) {
+                const x = batch[i];
+                const y = batch[i + 1];
+                const sc = batch[i + 2];
+                ctx.drawImage(bmp, x - hw * sc, y - hh * sc, bmp.width * sc, bmp.height * sc);
+            }
+        }
+    }
+}
+
+/* ================================================================
+   WebAudio (SE同時再生・BGMフェード・リバーブ・ピッチ)
+   ================================================================ */
+class AudioManager {
+    constructor() {
+        this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        this.masterGain = this.ctx.createGain();
+        this.seGain = this.ctx.createGain();
+        this.convolver = this.ctx.createConvolver();
+        this.reverbGain = this.ctx.createGain();
+        this.reverbGain.gain.value = 0.15;
+        this._buildReverb();
+        this.seGain.connect(this.masterGain);
+        this.seGain.connect(this.convolver);
+        this.convolver.connect(this.reverbGain);
+        this.reverbGain.connect(this.masterGain);
+        this.masterGain.connect(this.ctx.destination);
+        this._activeOscs = [];
+        this._maxOscs = 32;
+        // BGM: 同フォルダ music.mp3 を HTMLAudio で再生 (file:// 対応)
+        this.bgm = document.getElementById('bgm-audio');
+        this._bgmFadeFrames = 0;
+        this._bgmFadeTotal = 0;
+    }
+
+    _buildReverb() {
+        const len = this.ctx.sampleRate * 0.5;
+        const impulse = this.ctx.createBuffer(2, len, this.ctx.sampleRate);
+        for (let ch = 0; ch < 2; ch++) {
+            const data = impulse.getChannelData(ch);
+            for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
+        }
+        this.convolver.buffer = impulse;
+    }
+
+    resume() {
+        if (this.ctx.state === 'suspended') this.ctx.resume();
+    }
+
+    playBGM() {
+        if (!this.bgm) return;
+        this.bgm.volume = 1;
+        this._bgmFadeFrames = 0;
+        this.bgm.currentTime = 0;
+        const p = this.bgm.play();
+        if (p && p.catch) p.catch(() => {});
+    }
+
+    stopBGM() {
+        if (!this.bgm) return;
+        this.bgm.pause();
+        this.bgm.currentTime = 0;
+    }
+
+    resetVolume() {
+        if (this.bgm) {
+            this.bgm.volume = 1;
+            this._bgmFadeFrames = 0;
+        }
+    }
+
+    updateBGM() {
+        if (this._bgmFadeFrames > 0 && this.bgm) {
+            this._bgmFadeFrames--;
+            this.bgm.volume = this._bgmFadeFrames / this._bgmFadeTotal;
+            if (this._bgmFadeFrames <= 0) this.bgm.pause();
+        }
+    }
+
+    playSE(freq, type, decay, pitchSlide, volume) {
+        if (this.ctx.state === 'suspended') return;
+        if (this._activeOscs.length >= this._maxOscs) return;
+        const t = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        osc.type = type || 'square';
+        osc.frequency.setValueAtTime(freq, t);
+        if (pitchSlide && pitchSlide !== 1) {
+            osc.frequency.exponentialRampToValueAtTime(freq * pitchSlide, t + (decay || 0.1));
+        }
+        g.gain.setValueAtTime(volume || 0.15, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + (decay || 0.1));
+        osc.connect(g);
+        g.connect(this.seGain);
+        osc.start(t);
+        osc.stop(t + (decay || 0.1) + 0.05);
+        this._activeOscs.push(osc);
+        osc.onended = () => {
+            const idx = this._activeOscs.indexOf(osc);
+            if (idx >= 0) this._activeOscs[idx] = this._activeOscs[--this._activeOscs.length];
+            this._activeOscs.length = this._activeOscs.length;
+        };
+    }
+
+    playExplosion() {
+        this.playSE(80, 'sawtooth', 0.4, 0.3, 0.25);
+        this.playSE(200, 'square', 0.3, 0.5, 0.15);
+    }
+
+    playCutIn() {
+        this.playSE(660, 'triangle', 0.15, 2.0, 0.2);
+        this.playSE(880, 'sine', 0.3, 1.5, 0.15);
+    }
+
+    playCombo() {
+        this.playSE(1200 + Math.random() * 400, 'sine', 0.08, 1.2, 0.1);
+    }
+
+    fadeOut(durationSec) {
+        this._bgmFadeTotal = ((durationSec || 1.5) * 60) | 0;
+        this._bgmFadeFrames = this._bgmFadeTotal;
+    }
+
+    playShoot() {
+        this.playSE(920, 'square', 0.04, 1.1, 0.05);
+    }
+
+    stopAll() {
+        for (let i = this._activeOscs.length - 1; i >= 0; i--) {
+            try { this._activeOscs[i].stop(); } catch(e) {}
+        }
+        this._activeOscs.length = 0;
+    }
+
+    destroy() {
+        this.stopBGM();
+        this.stopAll();
+        this.ctx.close();
+    }
+}
+
+/* ================================================================
+   自機弾 (プール対応)
+   ================================================================ */
+class PlayerShot {
+    reset() {
+        this.x = 0; this.y = 0;
+        this.vx = 0; this.vy = 0;
+    }
+
+    init(x, y) {
+        this.x = x;
+        this.y = y;
+        this.vx = 0;
+        this.vy = -CONFIG.PLAYER_SHOT_SPEED;
+    }
+
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+    }
+
+    isOut() {
+        return this.y < -20 || this.x < -10 || this.x > CONFIG.CANVAS_W + 10;
+    }
+}
+
+class PlayerShotPool extends ObjectPool {
+    constructor() { super(() => new PlayerShot(), CONFIG.POOL.SHOT); }
+}
+
+/* ================================================================
+   弾 (プール対応)
+   ================================================================ */
+class Bullet {
+    reset() {
+        this.x = 0; this.y = 0;
+        this.vx = 0; this.vy = 0;
+        this.grazed = false;
+        this.colorIdx = 0;
+        this.radius = 6;
+        this.rainbow = false;
+    }
+
+    init(x, y, angle, speed, rainbow) {
+        this.x = x; this.y = y;
+        this.vx = Math.cos(angle) * speed;
+        this.vy = Math.sin(angle) * speed;
+        this.grazed = false;
+        this.rainbow = rainbow || false;
+        this.colorIdx = (Math.random() * 6) | 0;
+        this.radius = rainbow ? 5 : 6;
+    }
+
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+    }
+
+    isOut() {
+        const m = CONFIG.CULL_MARGIN;
+        return this.x < -m || this.x > CONFIG.CANVAS_W + m ||
+               this.y < -m || this.y > CONFIG.CANVAS_H + m;
+    }
+}
+
+class BulletPool extends ObjectPool {
+    constructor() { super(() => new Bullet(), CONFIG.POOL.BULLET); }
+}
+
+/* ================================================================
+   レーザー (プール対応)
+   ================================================================ */
+class Laser {
+    reset() {
+        this.x1 = 0; this.y1 = 0; this.x2 = 0; this.y2 = 0;
+        this.life = 0; this.maxLife = 0;
+        this.width = 4;
+        this.rainbow = false;
+        this.color = CONFIG.COLORS.LASER_GOLD;
+    }
+
+    init(x1, y1, x2, y2, life, width, rainbow) {
+        this.x1 = x1; this.y1 = y1;
+        this.x2 = x2; this.y2 = y2;
+        this.life = life;
+        this.maxLife = life;
+        this.width = width || 4;
+        this.rainbow = rainbow || false;
+    }
+
+    update() {
+        this.life--;
+        return this.life <= 0;
+    }
+}
+
+class LaserPool extends ObjectPool {
+    constructor() { super(() => new Laser(), CONFIG.POOL.LASER); }
+}
+
+/* ================================================================
+   パーティクル/エフェクト (プール対応)
+   ================================================================ */
+const EFFECT_TYPES = {
+    SPARK: 0, FIRE: 1, RING: 2, DEBRIS: 3, AURA: 4,
+    SAKURA: 5, METEOR: 6, SMOKE: 7, LIGHT_PILLAR: 8,
+    GOLD_DUST: 9, RAINBOW: 10, EXPLOSION: 11, TEXT: 12,
+    CONCENTRIC: 13, CRACK: 14, FLASH: 15
+};
+
+class Effect {
+    reset() {
+        this.x = 0; this.y = 0;
+        this.vx = 0; this.vy = 0;
+        this.life = 0; this.maxLife = 0;
+        this.type = 0;
+        this.size = 4;
+        this.color = '#fff';
+        this.rotation = 0;
+        this.rotSpeed = 0;
+        this.alpha = 1;
+        this.text = '';
+        this.scale = 1;
+    }
+
+    init(type, x, y, opts) {
+        opts = opts || {};
+        this.type = type;
+        this.x = x; this.y = y;
+        this.vx = opts.vx || 0;
+        this.vy = opts.vy || 0;
+        this.life = opts.life || 30;
+        this.maxLife = this.life;
+        this.size = opts.size || 4;
+        this.color = opts.color || '#ffd700';
+        this.rotation = opts.rotation || 0;
+        this.rotSpeed = opts.rotSpeed || 0;
+        this.alpha = opts.alpha !== undefined ? opts.alpha : 1;
+        this.text = opts.text || '';
+        this.scale = opts.scale || 1;
+    }
+
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.rotation += this.rotSpeed;
+        this.life--;
+        this.vy += 0.05;
+        return this.life <= 0;
+    }
+}
+
+class EffectPool extends ObjectPool {
+    constructor() { super(() => new Effect(), CONFIG.POOL.EFFECT); }
+}
+
+/* ================================================================
+   背景演出 (パララックス・常時動き)
+   ================================================================ */
+class BackgroundSystem {
+    constructor(w, h) {
+        this.w = w; this.h = h;
+        this.layer = 0;
+        this.stars = [];
+        this.clouds = [];
+        this.gears = [];
+        this.auroraPhase = 0;
+        this.magicAngle = 0;
+        this.rainbowMode = false;
+        this.feverMode = false;
+        this.feverColor = 0;
+        this._initStars(120);
+        this._initClouds(8);
+        this._initGears(3);
+    }
+
+    _initStars(n) {
+        for (let i = 0; i < n; i++) {
+            this.stars.push({
+                x: Math.random() * this.w,
+                y: Math.random() * this.h,
+                speed: 0.2 + Math.random() * 1.5,
+                size: 1 + Math.random() * 2,
+                twinkle: Math.random() * Math.PI * 2
+            });
+        }
+    }
+
+    _initClouds(n) {
+        for (let i = 0; i < n; i++) {
+            this.clouds.push({
+                x: Math.random() * this.w,
+                y: 50 + Math.random() * 200,
+                speed: 0.3 + Math.random() * 0.5,
+                scale: 0.5 + Math.random() * 1.5,
+                alpha: 0.05 + Math.random() * 0.1
+            });
+        }
+    }
+
+    _initGears(n) {
+        for (let i = 0; i < n; i++) {
+            this.gears.push({
+                x: 100 + i * 200,
+                y: 400 + i * 50,
+                r: 40 + i * 20,
+                speed: (i % 2 === 0 ? 1 : -1) * 0.008,
+                teeth: 12 + i * 4
+            });
+        }
+    }
+
+    setLayer(phase) {
+        this.layer = phase;
+    }
+
+    update(frame, quality) {
+        this.auroraPhase += 0.01;
+        this.magicAngle += 0.015;
+        const detail = quality.bgDetail;
+        const starStep = detail < 0.5 ? 3 : detail < 0.8 ? 2 : 1;
+        for (let i = 0; i < this.stars.length; i += starStep) {
+            const s = this.stars[i];
+            s.y += s.speed;
+            s.twinkle += 0.05;
+            if (s.y > this.h) { s.y = 0; s.x = Math.random() * this.w; }
+        }
+        for (let i = 0; i < this.clouds.length; i++) {
+            const c = this.clouds[i];
+            c.x += c.speed;
+            if (c.x > this.w + 100) c.x = -100;
+        }
+        for (let i = 0; i < this.gears.length; i++) {
+            this.gears[i].speed;
+        }
+    }
+
+    draw(ctx, frame, quality) {
+        const w = this.w, h = this.h;
+        if (this.feverMode) {
+            const fc = this.feverColor % 4;
+            const colors = ['#ffd700', '#ff0044', '#ffffff', '#8800ff'];
+            ctx.fillStyle = colors[fc];
+            ctx.globalAlpha = 0.15;
+            ctx.fillRect(0, 0, w, h);
+            ctx.globalAlpha = 1;
+        } else if (this.rainbowMode) {
+            ctx.fillStyle = Util.rainbowColor(frame, 0);
+            ctx.globalAlpha = 0.08;
+            ctx.fillRect(0, 0, w, h);
+            ctx.globalAlpha = 1;
+        } else {
+            const grad = ctx.createLinearGradient(0, 0, 0, h);
+            const palettes = [
+                ['#0a0015', '#1a0520', '#0a0010'],
+                ['#150510', '#200818', '#100008'],
+                ['#051015', '#081828', '#040810'],
+                ['#100800', '#201000', '#080400']
+            ];
+            const pal = palettes[this.layer % palettes.length];
+            grad.addColorStop(0, pal[0]);
+            grad.addColorStop(0.5, pal[1]);
+            grad.addColorStop(1, pal[2]);
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, w, h);
+        }
+
+        const detail = quality.bgDetail;
+        ctx.fillStyle = '#ffffff';
+        const starStep = detail < 0.5 ? 4 : detail < 0.8 ? 2 : 1;
+        for (let i = 0; i < this.stars.length; i += starStep) {
+            const s = this.stars[i];
+            ctx.globalAlpha = 0.3 + Math.sin(s.twinkle) * 0.3;
+            ctx.fillRect(s.x | 0, s.y | 0, s.size, s.size);
+        }
+        ctx.globalAlpha = 1;
+
+        if (detail >= 0.6) {
+            for (let i = 0; i < this.clouds.length; i++) {
+                const c = this.clouds[i];
+                ctx.globalAlpha = c.alpha;
+                ctx.fillStyle = this.rainbowMode ? Util.rainbowColor(frame, i * 30) : '#ffffff';
+                ctx.beginPath();
+                ctx.ellipse(c.x, c.y, 60 * c.scale, 20 * c.scale, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        if (detail >= 0.8) {
+            this._drawMagicCircle(ctx, w * 0.5, h * 0.4, 180, this.magicAngle, 'rgba(212,175,55,0.08)');
+            this._drawMagicCircle(ctx, w * 0.5, h * 0.4, 120, -this.magicAngle * 1.5, 'rgba(255,100,100,0.06)');
+        }
+
+        if (detail >= 0.5) {
+            for (let i = 0; i < this.gears.length; i++) {
+                this._drawGear(ctx, this.gears[i], frame);
+            }
+        }
+
+        if (detail >= 0.7 && !this.rainbowMode) {
+            this._drawAurora(ctx, w, h);
+        }
+    }
+
+    _drawMagicCircle(ctx, cx, cy, r, angle, color) {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(angle);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let i = 0; i < 36; i++) {
+            const a = (i / 36) * Math.PI * 2;
+            const rr = i % 2 === 0 ? r : r * 0.92;
+            const px = Math.cos(a) * rr;
+            const py = Math.sin(a) * rr;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    _drawGear(ctx, g, frame) {
+        ctx.save();
+        ctx.translate(g.x, g.y);
+        ctx.rotate(frame * g.speed);
+        ctx.strokeStyle = 'rgba(212,175,55,0.12)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        const teeth = g.teeth;
+        for (let i = 0; i < teeth; i++) {
+            const a = (i / teeth) * Math.PI * 2;
+            const r = i % 2 === 0 ? g.r : g.r * 0.85;
+            const px = Math.cos(a) * r;
+            const py = Math.sin(a) * r;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    _drawAurora(ctx, w, h) {
+        ctx.globalAlpha = 0.06;
+        for (let band = 0; band < 3; band++) {
+            ctx.fillStyle = Util.hsvToRgb(0.55 + band * 0.08 + Math.sin(this.auroraPhase) * 0.05, 0.8, 0.8);
+            ctx.beginPath();
+            ctx.moveTo(0, h * 0.3);
+            for (let x = 0; x <= w; x += 20) {
+                const y = h * 0.3 + Math.sin(x * 0.01 + this.auroraPhase + band) * 40 + band * 30;
+                ctx.lineTo(x, y);
+            }
+            ctx.lineTo(w, h * 0.5);
+            ctx.lineTo(0, h * 0.5);
+            ctx.closePath();
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+    }
+}
+
+/* ================================================================
+   カットイン / スペル宣言 / 期待度演出
+   ================================================================ */
+class CutInSystem {
+    constructor() {
+        this.queue = [];
+        this.current = null;
+    }
+
+    trigger(type, text, duration, color) {
+        this.queue.push({
+            type: type,
+            text: text || '',
+            life: duration || 90,
+            maxLife: duration || 90,
+            color: color || '#ffd700',
+            scale: 0,
+            shake: 0,
+            rotation: 0
+        });
+    }
+
+    update() {
+        if (!this.current && this.queue.length > 0) {
+            this.current = this.queue.shift();
+            this.current.scale = 0;
+        }
+        if (!this.current) return;
+        const c = this.current;
+        c.life--;
+        const prog = 1 - c.life / c.maxLife;
+        if (prog < 0.15) {
+            c.scale = prog / 0.15 * 1.5;
+        } else if (prog > 0.85) {
+            c.scale = (1 - prog) / 0.15 * 1.5;
+        } else {
+            c.scale = 1.5 + Math.sin(prog * 20) * 0.1;
+        }
+        c.shake = prog < 0.3 ? (1 - prog / 0.3) * 8 : 0;
+        c.rotation = Math.sin(prog * 10) * 0.05;
+        if (c.life <= 0) this.current = null;
+    }
+
+    draw(ctx, w, h) {
+        const c = this.current;
+        if (!c) return;
+        ctx.save();
+        ctx.translate(w * 0.5 + (Math.random() - 0.5) * c.shake, h * 0.4);
+        ctx.rotate(c.rotation);
+        ctx.scale(c.scale, c.scale);
+
+        const typeColors = {
+            gold: ['#ffd700', '#ff8800'],
+            red: ['#ff0044', '#880000'],
+            rainbow: null,
+            spell: ['#ffffff', '#ffd700']
+        };
+        let fillColor = c.color;
+        if (c.type === 'rainbow') {
+            fillColor = Util.rainbowColor(c.maxLife - c.life, 0);
+        }
+
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.font = 'bold 52px "MS Mincho", serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 6;
+        ctx.strokeText(c.text, 0, 0);
+
+        ctx.fillStyle = fillColor;
+        ctx.fillText(c.text, 0, 0);
+
+        if (c.type === 'gold' || c.type === 'spell') {
+            ctx.globalAlpha = 0.4;
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 56px "MS Mincho", serif';
+            ctx.fillText(c.text, 2, -2);
+        }
+
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+        ctx.restore();
+
+        ctx.fillStyle = 'rgba(255,255,255,' + (c.shake * 0.03) + ')';
+        ctx.fillRect(0, 0, w, h);
+    }
+
+    isActive() { return this.current !== null; }
+}
+
+/* ================================================================
+   ポストエフェクト (シェイク・ズーム・色収差・残像)
+   ================================================================ */
+class PostFX {
+    constructor(canvas, ctx) {
+        this.canvas = canvas;
+        this.ctx = ctx;
+        this.shake = 0;
+        this.chroma = 0;
+        this.zoom = 1;
+        this.targetZoom = 1;
+        this.rotation = 0;
+        this.targetRotation = 0;
+        this.flash = 0;
+        this.flashColor = '#ffffff';
+        this.panX = 0;
+        this.panY = 0;
+        this.offCanvas = document.createElement('canvas');
+        this.offCtx = this.offCanvas.getContext('2d');
+        this.offCanvas.width = canvas.width;
+        this.offCanvas.height = canvas.height;
+    }
+
+    reset() {
+        this.shake = 0;
+        this.chroma = 0;
+        this.zoom = 1;
+        this.targetZoom = 1;
+        this.rotation = 0;
+        this.targetRotation = 0;
+        this.flash = 0;
+        this.panX = 0;
+        this.panY = 0;
+    }
+
+    addShake(amount) { this.shake = Math.max(this.shake, amount); }
+    addFlash(color, intensity) {
+        this.flash = Math.max(this.flash, intensity || 0.8);
+        this.flashColor = color || '#ffffff';
+    }
+    setZoom(z) { this.targetZoom = z; }
+    setRotation(r) { this.targetRotation = r; }
+
+    preDraw(trailAlpha) {
+        this.ctx.fillStyle = 'rgba(0,0,0,' + (trailAlpha || 0.15) + ')';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        this.zoom += (this.targetZoom - this.zoom) * 0.08;
+        this.rotation += (this.targetRotation - this.rotation) * 0.08;
+
+        let sx = 0, sy = 0;
+        if (this.shake > 0.5) {
+            sx = (Math.random() - 0.5) * this.shake;
+            sy = (Math.random() - 0.5) * this.shake;
+            this.shake *= 0.88;
+        }
+
+        const cx = this.canvas.width * 0.5;
+        const cy = this.canvas.height * 0.5;
+        this.ctx.setTransform(
+            this.zoom, 0, 0, this.zoom,
+            cx * (1 - this.zoom) + sx + this.panX,
+            cy * (1 - this.zoom) + sy + this.panY
+        );
+        if (Math.abs(this.rotation) > 0.001) {
+            this.ctx.translate(cx, cy);
+            this.ctx.rotate(this.rotation);
+            this.ctx.translate(-cx, -cy);
+        }
+    }
+
+    postDraw(quality) {
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+        if (this.chroma > 0.5 && quality.level >= 1 && !IS_FILE_PROTOCOL) {
+            // file:// では canvas 間 drawImage がセキュリティエラーになるためスキップ
+            this.offCtx.clearRect(0, 0, w, h);
+            this.offCtx.drawImage(this.canvas, 0, 0);
+            const c = this.chroma;
+            this.ctx.globalCompositeOperation = 'screen';
+            this.ctx.globalAlpha = 0.5;
+            this.ctx.drawImage(this.offCanvas, c, 0);
+            this.ctx.drawImage(this.offCanvas, -c, 0);
+            this.ctx.globalCompositeOperation = 'source-over';
+            this.ctx.globalAlpha = 1;
+            this.chroma *= 0.92;
+        } else if (this.chroma > 0.5) {
+            // file:// フォールバック: 軽量な色収差風フラッシュ
+            this.ctx.fillStyle = 'rgba(255,0,80,0.04)';
+            this.ctx.fillRect(this.chroma, 0, w, h);
+            this.ctx.fillStyle = 'rgba(0,180,255,0.04)';
+            this.ctx.fillRect(-this.chroma, 0, w, h);
+            this.chroma *= 0.92;
+        }
+
+        if (this.flash > 0.01) {
+            this.ctx.fillStyle = this.flashColor;
+            this.ctx.globalAlpha = this.flash;
+            this.ctx.fillRect(0, 0, w, h);
+            this.ctx.globalAlpha = 1;
+            this.flash *= 0.85;
+        }
+
+        if (quality.level >= 2) {
+            this.ctx.fillStyle = 'rgba(255,255,255,0.015)';
+            for (let i = 0; i < h; i += 4) {
+                this.ctx.fillRect(0, i, w, 1);
+            }
+        }
+    }
+}
+
+/* ================================================================
+   エフェクト描画 (Canvas状態変更最小化)
+   ================================================================ */
+class EffectRenderer {
+    static drawAll(ctx, effects, activeLen, frame, rainbow) {
+        let curColor = '';
+        let curType = -1;
+        let curAlpha = 1;
+        let useLighter = false;
+
+        for (let i = 0; i < activeLen; i++) {
+            const e = effects[i];
+            if (!e.active) continue;
+            if (!Util.inBounds(e.x, e.y, CONFIG.CANVAS_W, CONFIG.CANVAS_H, 80)) continue;
+
+            const alpha = e.life / e.maxLife * e.alpha;
+            const color = (rainbow && e.type !== EFFECT_TYPES.TEXT)
+                ? Util.rainbowColor(frame, i * 7)
+                : e.color;
+
+            if (e.type === EFFECT_TYPES.RING || e.type === EFFECT_TYPES.CONCENTRIC) {
+                if (!useLighter) {
+                    ctx.globalCompositeOperation = 'lighter';
+                    useLighter = true;
+                }
+                const prog = 1 - e.life / e.maxLife;
+                const r = e.size * (1 + prog * 3);
+                ctx.globalAlpha = alpha * 0.6;
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
+                ctx.stroke();
+                continue;
+            }
+
+            if (e.type === EFFECT_TYPES.TEXT) {
+                ctx.globalCompositeOperation = 'lighter';
+                ctx.font = 'bold ' + (e.size * e.scale) + 'px "MS Mincho", serif';
+                ctx.textAlign = 'center';
+                ctx.fillStyle = color;
+                ctx.globalAlpha = alpha;
+                ctx.fillText(e.text, e.x, e.y);
+                useLighter = true;
+                continue;
+            }
+
+            if (e.type === EFFECT_TYPES.LIGHT_PILLAR) {
+                if (!useLighter) { ctx.globalCompositeOperation = 'lighter'; useLighter = true; }
+                ctx.globalAlpha = alpha * 0.4;
+                const grd = ctx.createLinearGradient(e.x, e.y - e.size, e.x, e.y + e.size);
+                grd.addColorStop(0, 'rgba(255,215,0,0)');
+                grd.addColorStop(0.5, color);
+                grd.addColorStop(1, 'rgba(255,215,0,0)');
+                ctx.fillStyle = grd;
+                ctx.fillRect(e.x - e.size * 0.15, e.y - e.size, e.size * 0.3, e.size * 2);
+                continue;
+            }
+
+            if (color !== curColor) {
+                ctx.fillStyle = color;
+                curColor = color;
+            }
+            if (alpha !== curAlpha) {
+                ctx.globalAlpha = alpha;
+                curAlpha = alpha;
+            }
+            if (!useLighter && e.type <= EFFECT_TYPES.GOLD_DUST) {
+                ctx.globalCompositeOperation = 'lighter';
+                useLighter = true;
+            }
+
+            const sz = e.size * e.scale;
+            if (e.type === EFFECT_TYPES.SAKURA) {
+                ctx.save();
+                ctx.translate(e.x, e.y);
+                ctx.rotate(e.rotation);
+                ctx.fillRect(-sz, -sz * 0.3, sz * 2, sz * 0.6);
+                ctx.restore();
+            } else if (e.type === EFFECT_TYPES.DEBRIS) {
+                ctx.save();
+                ctx.translate(e.x, e.y);
+                ctx.rotate(e.rotation);
+                ctx.fillRect(-sz * 0.5, -sz * 0.5, sz, sz);
+                ctx.restore();
+            } else {
+                ctx.fillRect((e.x - sz * 0.5) | 0, (e.y - sz * 0.5) | 0, sz, sz);
+            }
+        }
+
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+    }
+}
+
+/* ================================================================
+   プレイヤー
+   ================================================================ */
+class Player {
+    constructor() {
+        this.reset();
+        this.keys = {};
+        this.bombs = CONFIG.BOMB_COUNT;
+        this.grazeCount = 0;
+        this.invincible = 0;
+    }
+
+    reset() {
+        this.x = CONFIG.CANVAS_W * 0.5;
+        this.y = CONFIG.CANVAS_H - 100;
+        this.bombs = CONFIG.BOMB_COUNT;
+        this.grazeCount = 0;
+        this.invincible = 0;
+        this.focus = false;
+        this.shootCooldown = 0;
+        this.autoShoot = false;
+    }
+
+    update() {
+        if (this.invincible > 0) this.invincible--;
+        const s = (this.keys['ShiftLeft'] || this.keys['ShiftRight'] || this.focus)
+            ? CONFIG.PLAYER_SLOW : CONFIG.PLAYER_SPEED;
+        if (this.keys['ArrowUp'] || this.keys['KeyW']) this.y -= s;
+        if (this.keys['ArrowDown'] || this.keys['KeyS']) this.y += s;
+        if (this.keys['ArrowLeft'] || this.keys['KeyA']) this.x -= s;
+        if (this.keys['ArrowRight'] || this.keys['KeyD']) this.x += s;
+        this.x = Util.clamp(this.x, 10, CONFIG.CANVAS_W - 10);
+        this.y = Util.clamp(this.y, 10, CONFIG.CANVAS_H - 10);
+    }
+
+    draw(ctx, frame, rainbow) {
+        const flicker = this.invincible > 0 && (frame % 4 < 2);
+        if (flicker) return;
+        const color = rainbow ? Util.rainbowColor(frame, 0) : CONFIG.COLORS.PLAYER;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y - 12);
+        ctx.lineTo(this.x - 10, this.y + 8);
+        ctx.lineTo(this.x + 10, this.y + 8);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#ff0000';
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, 2, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+/* ================================================================
+   ボス (フェーズ変身・レインボーモード)
+   ================================================================ */
+class Boss {
+    constructor() {
+        this.reset();
+    }
+
+    reset() {
+        this.x = CONFIG.CANVAS_W * 0.5;
+        this.y = 150;
+        this.hp = CONFIG.BOSS_MAX_HP;
+        this.maxHp = CONFIG.BOSS_MAX_HP;
+        this.phase = 0;
+        this.wings = 0;
+        this.auraSize = 0;
+        this.rainbow = false;
+        this.spellActive = false;
+        this.lastAttackFrame = 0;
+        this.transformAnim = 0;
+        this.bodyColor = CONFIG.COLORS.GOLD;
+        this.patternSeed = Math.random() * 1000;
+    }
+
+    hpRatio() { return this.hp / this.maxHp; }
+
+    takeDamage(amount) {
+        const prevHp = this.hp;
+        this.hp -= amount;
+        if (this.hp < 0) this.hp = 0;
+        for (let i = 0; i < CONFIG.BOSS_PHASES.length; i++) {
+            const threshold = CONFIG.BOSS_PHASES[i] * this.maxHp;
+            if (prevHp > threshold && this.hp <= threshold) {
+                this.phase = i + 1;
+                this.transformAnim = 120;
+                this.wings = this.phase;
+                this.auraSize = 20 + this.phase * 15;
+                const colors = [CONFIG.COLORS.GOLD, '#ff8800', '#ff0044', '#8800ff'];
+                this.bodyColor = colors[this.phase] || CONFIG.COLORS.GOLD;
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    update(frame) {
+        const speed = 0.02 + this.phase * 0.005;
+        this.x = CONFIG.CANVAS_W * 0.5 + Math.sin(frame * speed) * (160 - this.phase * 20);
+        this.y = 150 + Math.cos(frame * speed * 0.75) * (50 + this.phase * 10);
+        if (this.transformAnim > 0) this.transformAnim--;
+        this.auraSize = 20 + this.phase * 15 + Math.sin(frame * 0.05) * 5;
+    }
+
+    draw(ctx, frame, rainbow) {
+        const r = 45 + this.phase * 5;
+        if (this.auraSize > 0) {
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.globalAlpha = 0.2 + Math.sin(frame * 0.08) * 0.1;
+            const auraColor = rainbow ? Util.rainbowColor(frame, 0) : this.bodyColor;
+            ctx.fillStyle = auraColor;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.auraSize + r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+        }
+
+        if (this.wings > 0) {
+            ctx.globalCompositeOperation = 'lighter';
+            for (let w = 0; w < this.wings; w++) {
+                const wingAngle = frame * 0.03 + w * 1.2;
+                const wx = Math.cos(wingAngle) * (r + 30);
+                const wy = Math.sin(wingAngle) * 15;
+                ctx.fillStyle = rainbow ? Util.rainbowColor(frame, w * 40) : '#ffd700';
+                ctx.globalAlpha = 0.5;
+                ctx.beginPath();
+                ctx.ellipse(this.x + wx, this.y + wy, 25, 10, wingAngle, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        ctx.globalCompositeOperation = 'source-over';
+        const bodyColor = rainbow ? Util.rainbowColor(frame, 10) : this.bodyColor;
+        const grd = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r);
+        grd.addColorStop(0, '#ffffff');
+        grd.addColorStop(0.4, bodyColor);
+        grd.addColorStop(1, '#880000');
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (this.transformAnim > 0) {
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 3;
+            ctx.globalAlpha = this.transformAnim / 120;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, r + (120 - this.transformAnim), 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+            ctx.globalCompositeOperation = 'source-over';
+        }
+    }
+}
+
+/* ================================================================
+   弾幕パターン生成
+   ================================================================ */
+class PatternGenerator {
+    static spawn(app, frame) {
+        const boss = app.boss;
+        const f = frame;
+        const phase = boss.phase;
+        const rainbow = app.rainbowMode || boss.rainbow;
+
+        if (f % 12 === 0) {
+            const count = 12 + phase * 4;
+            const step = (Math.PI * 2) / count;
+            const offset = f * 0.025 + boss.patternSeed;
+            for (let i = 0; i < count; i++) {
+                const b = app.bulletPool.acquire();
+                b.init(boss.x, boss.y, i * step + offset, 2.5 + phase * 0.5, rainbow);
+            }
+        }
+
+        if (f % 45 === 0) {
+            const spiral = 20 + phase * 5;
+            for (let i = 0; i < spiral; i++) {
+                const b = app.bulletPool.acquire();
+                b.init(boss.x, boss.y, f * 0.08 + i * 0.4, 2 + phase * 0.3, rainbow);
+            }
+        }
+
+        if (phase >= 1 && f % 90 === 0) {
+            for (let i = 0; i < 8; i++) {
+                const angle = (i / 8) * Math.PI * 2 + f * 0.02;
+                const b = app.bulletPool.acquire();
+                b.init(boss.x, boss.y, angle, 4, rainbow);
+            }
+        }
+
+        if (phase >= 2 && f % 120 === 0) {
+            const aimAngle = Math.atan2(app.player.y - boss.y, app.player.x - boss.x);
+            for (let i = -3; i <= 3; i++) {
+                const b = app.bulletPool.acquire();
+                b.init(boss.x, boss.y, aimAngle + i * 0.08, 3.5, rainbow);
+            }
+        }
+
+        if (phase >= 3 && f % 80 === 0) {
+            const laser = app.laserPool.acquire();
+            const angle = Math.atan2(app.player.y - boss.y, app.player.x - boss.x);
+            const len = 900;
+            laser.init(
+                boss.x, boss.y,
+                boss.x + Math.cos(angle) * len,
+                boss.y + Math.sin(angle) * len,
+                40, 6 + phase, rainbow
+            );
+        }
+
+        if (f % 60 === 0) {
+            app.audio.playSE(440 - phase * 30, 'triangle', 0.15, 0.8, 0.08);
+        }
+    }
+}
+
+/* ================================================================
+   演出スポーン (パーティクル大量生成)
+   ================================================================ */
+class VFXSpawner {
+    static burst(pool, x, y, count, type, opts) {
+        for (let i = 0; i < count; i++) {
+            const e = pool.acquire();
+            const angle = Math.random() * Math.PI * 2;
+            const speed = Util.rand(1, 5);
+            e.init(type, x, y, {
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                life: Util.randInt(20, 50),
+                size: Util.rand(2, 8),
+                color: opts && opts.color ? opts.color : Util.hsvToRgb(Math.random(), 1, 1),
+                rotSpeed: Util.rand(-0.2, 0.2)
+            });
+        }
+    }
+
+    static ring(pool, x, y, color, size) {
+        const e = pool.acquire();
+        e.init(EFFECT_TYPES.RING, x, y, { life: 40, size: size || 10, color: color || '#ffd700' });
+    }
+
+    static pillar(pool, x, y, size, color) {
+        const e = pool.acquire();
+        e.init(EFFECT_TYPES.LIGHT_PILLAR, x, y, { life: 60, size: size || 200, color: color || '#ffd700' });
+    }
+
+    static text(pool, x, y, text, size, color) {
+        const e = pool.acquire();
+        e.init(EFFECT_TYPES.TEXT, x, y, {
+            life: 80, size: size || 32, text: text, color: color || '#ffd700',
+            vy: -1.5, scale: 1
+        });
+    }
+
+    static explosion(app, x, y, scale) {
+        const q = app.quality.scaledCount(30 * (scale || 1));
+        VFXSpawner.burst(app.effectPool, x, y, q, EFFECT_TYPES.SPARK, { color: '#ffd700' });
+        VFXSpawner.burst(app.effectPool, x, y, (q * 0.5) | 0, EFFECT_TYPES.FIRE, { color: '#ff4400' });
+        VFXSpawner.ring(app.effectPool, x, y, '#ffffff', 15);
+        VFXSpawner.ring(app.effectPool, x, y, '#ffd700', 8);
+    }
+
+    static bossDefeat(app) {
+        const q = app.quality.scaledCount(200);
+        const boss = app.boss;
+        for (let i = 0; i < q; i++) {
+            if (!app.quality.shouldSpawn(1)) continue;
+            const e = app.effectPool.acquire();
+            const angle = Math.random() * Math.PI * 2;
+            const speed = Util.rand(2, 12);
+            e.init(
+                i % 5 === 0 ? EFFECT_TYPES.SAKURA : EFFECT_TYPES.GOLD_DUST,
+                boss.x, boss.y,
+                {
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    life: Util.randInt(60, 120),
+                    size: Util.rand(3, 10),
+                    color: i % 3 === 0 ? '#ffd700' : Util.rainbowColor(i, 0),
+                    rotSpeed: Util.rand(-0.3, 0.3)
+                }
+            );
+        }
+    }
+}
+
+/* ================================================================
+   メインアプリケーション
+   ================================================================ */
+const App = {
+    init() {
+        this.canvas = document.getElementById('gameCanvas');
+        this.ctx = this.canvas.getContext('2d', { alpha: false });
+        this.canvas.width = CONFIG.CANVAS_W;
+        this.canvas.height = CONFIG.CANVAS_H;
+
+        this.backend = new RenderBackend(CONFIG.CANVAS_W, CONFIG.CANVAS_H);
+        this.spriteBatch = new SpriteBatch();
+        this.audio = new AudioManager();
+        this.quality = new QualityManager();
+        this.postFX = new PostFX(this.canvas, this.ctx);
+        this.background = new BackgroundSystem(CONFIG.CANVAS_W, CONFIG.CANVAS_H);
+        this.cutIn = new CutInSystem();
+
+        this.bulletPool = new BulletPool();
+        this.effectPool = new EffectPool();
+        this.laserPool = new LaserPool();
+        this.shotPool = new PlayerShotPool();
+
+        this.player = new Player();
+        this.boss = new Boss();
+
+        this.state = {
+            score: 0,
+            displayScore: 0,
+            frame: 0,
+            active: false,
+            loopId: null,
+            combo: 0,
+            comboTimer: 0,
+            multiplier: 1,
+            grazeTotal: 0,
+            grazeSinceBonus: 0,
+            rainbowMode: false,
+            feverMode: false,
+            feverTimer: 0,
+            bossDefeated: false,
+            resultTimer: 0,
+            overlayFade: 0,
+            overlayVisible: true,
+            overlayTarget: 1,
+            gamePhase: 'title',
+            lastHpRatio: 1,
+            bombActive: false,
+            bombTimer: 0,
+            damageNumbers: [],
+            milestoneHit: {}
+        };
+
+        this.rainbowMode = false;
+
+        this._bindInput();
+        this._bindUI();
+
+        this._lastTimestamp = 0;
+        this._accumulator = 0;
+        this._fixedDt = 1000 / 120;
+    },
+
+    _bindInput() {
+        this._onKeyDown = (e) => {
+            if (e.code === 'KeyZ' || e.code === 'KeyX') e.preventDefault();
+            this.player.keys[e.code] = true;
+            if (e.code === 'KeyX' && !e.repeat && this.state.active && this.player.bombs > 0 && !this.state.bombActive) {
+                this.activateBomb();
+            }
+        };
+        this._onKeyUp = (e) => { this.player.keys[e.code] = false; };
+        window.addEventListener('keydown', this._onKeyDown);
+        window.addEventListener('keyup', this._onKeyUp);
+
+        this._onTouchStart = (e) => {
+            if (!this.state.active) return;
+            this.player.autoShoot = true;
+            this.player.focus = true;
+            const rect = this.canvas.getBoundingClientRect();
+            const t = e.touches[0];
+            this.player.x = (t.clientX - rect.left) * (CONFIG.CANVAS_W / rect.width);
+            this.player.y = (t.clientY - rect.top) * (CONFIG.CANVAS_H / rect.height);
+        };
+        this.canvas.addEventListener('touchstart', this._onTouchStart, { passive: false });
+        this.canvas.addEventListener('touchmove', this._onTouch = (e) => {
+            e.preventDefault();
+            if (!this.state.active) return;
+            const rect = this.canvas.getBoundingClientRect();
+            const t = e.touches[0];
+            this.player.x = (t.clientX - rect.left) * (CONFIG.CANVAS_W / rect.width);
+            this.player.y = (t.clientY - rect.top) * (CONFIG.CANVAS_H / rect.height);
+            this.player.focus = true;
+        }, { passive: false });
+        this.canvas.addEventListener('touchend', () => {
+            this.player.focus = false;
+            this.player.autoShoot = false;
+        });
+    },
+
+    _bindUI() {
+        document.getElementById('start-btn').addEventListener('click', () => this.start());
+    },
+
+    _vibrate(ms) {
+        if (navigator.vibrate) navigator.vibrate(ms);
+    },
+
+    reset() {
+        this.state.score = 0;
+        this.state.displayScore = 0;
+        this.state.frame = 0;
+        this.state.combo = 0;
+        this.state.comboTimer = 0;
+        this.state.multiplier = 1;
+        this.state.grazeTotal = 0;
+        this.state.grazeSinceBonus = 0;
+        this.state.rainbowMode = false;
+        this.state.feverMode = false;
+        this.state.feverTimer = 0;
+        this.state.bossDefeated = false;
+        this.state.resultTimer = 0;
+        this.state.bombActive = false;
+        this.state.bombTimer = 0;
+        this.state.milestoneHit = {};
+        this.state.damageNumbers = [];
+        this.rainbowMode = false;
+
+        this.bulletPool.releaseAll();
+        this.effectPool.releaseAll();
+        this.laserPool.releaseAll();
+        this.shotPool.releaseAll();
+        this.player.reset();
+        this.boss.reset();
+        this.postFX.reset();
+        this.cutIn.queue.length = 0;
+        this.cutIn.current = null;
+        this.background.rainbowMode = false;
+        this.background.feverMode = false;
+        this.audio.resetVolume();
+        this._updateHPBar();
+    },
+
+    start() {
+        this.reset();
+        this.state.active = true;
+        this.state.gamePhase = 'playing';
+        this.state.overlayTarget = 0;
+        this.state.overlayFade = 1;
+        document.getElementById('overlay').style.display = 'flex';
+        this.audio.resume();
+        this.audio.playBGM();
+
+        this.cutIn.trigger('gold', '正露丸 2000', 90, '#ffd700');
+        this.audio.playCutIn();
+
+        if (this.state.loopId) cancelAnimationFrame(this.state.loopId);
+        this._lastTimestamp = performance.now();
+        this.loop(this._lastTimestamp);
+    },
+
+    activateBomb() {
+        this.player.bombs--;
+        this.state.bombActive = true;
+        this.state.bombTimer = 60;
+        this.player.invincible = 120;
+
+        const bullets = this.bulletPool.activeList;
+        for (let i = this.bulletPool.activeCount - 1; i >= 0; i--) {
+            this.bulletPool.release(bullets[i]);
+        }
+
+        for (let i = 0; i < 5; i++) {
+            const angle = (i / 5) * Math.PI * 2;
+            const laser = this.laserPool.acquire();
+            const len = 1000;
+            laser.init(
+                this.player.x, this.player.y,
+                this.player.x + Math.cos(angle) * len,
+                this.player.y + Math.sin(angle) * len,
+                30, 12, true
+            );
+        }
+
+        VFXSpawner.explosion(this, this.player.x, this.player.y, 3);
+        VFXSpawner.ring(this.effectPool, this.player.x, this.player.y, '#ffffff', 20);
+        VFXSpawner.pillar(this.effectPool, this.player.x, this.player.y, 300, '#ffd700');
+
+        this.postFX.addFlash('#ffffff', 1);
+        this.postFX.addShake(20);
+        this.postFX.setZoom(1.15);
+        this.cutIn.trigger('gold', 'ボム解放!', 60, '#ffd700');
+        this.audio.playExplosion();
+        this._vibrate(200);
+        this.background.layer = 3;
+
+        this.state.score += 50000;
+    },
+
+    triggerBossPhaseCutIn(phaseIdx) {
+        const texts = ['第一形態解放!', '第二形態変身!', '最終形態顕現!', 'ラストアタック!'];
+        const types = ['gold', 'red', 'rainbow', 'spell'];
+        this.cutIn.trigger(types[phaseIdx] || 'gold', texts[phaseIdx] || '変身!', 90);
+        this.audio.playCutIn();
+        this.postFX.addShake(15);
+        this.postFX.addFlash('#ffd700', 0.6);
+        this.postFX.setZoom(1.1);
+        this._vibrate(100);
+        VFXSpawner.explosion(this, this.boss.x, this.boss.y, 2);
+        VFXSpawner.pillar(this.effectPool, this.boss.x, this.boss.y, 250);
+        this.background.setLayer(phaseIdx + 1);
+    },
+
+    triggerSpellCard() {
+        this.boss.spellActive = true;
+        this.cutIn.trigger('spell', 'スペルカード「超絶正露丸」', 120, '#ffffff');
+        this.postFX.addFlash('#ffffff', 0.8);
+        this.postFX.chroma = 8;
+        this.postFX.setZoom(1.08);
+        this.audio.playCutIn();
+        this._vibrate(150);
+        for (let i = 0; i < 6; i++) {
+            VFXSpawner.pillar(this.effectPool, Util.rand(50, CONFIG.CANVAS_W - 50), CONFIG.CANVAS_H, 300, '#ffd700');
+        }
+    },
+
+    triggerRainbowMode() {
+        this.rainbowMode = true;
+        this.state.rainbowMode = true;
+        this.background.rainbowMode = true;
+        this.boss.rainbow = true;
+        this.state.multiplier = CONFIG.FEVER_SCORE_MULT;
+        this.state.feverMode = true;
+        this.state.feverTimer = CONFIG.FEVER_DURATION;
+        this.background.feverMode = true;
+        this.cutIn.trigger('rainbow', 'レインボーフィーバー!', 120);
+        this.cutIn.trigger('gold', '期待度 MAX!', 90, '#ffd700');
+        this.postFX.addFlash('#ffffff', 1);
+        this.postFX.setRotation(0.02);
+        this.audio.playCutIn();
+        this._vibrate([100, 50, 100, 50, 200]);
+    },
+
+    triggerComboMilestone(combo) {
+        this.cutIn.trigger('gold', combo + ' COMBO!!', 70, '#ffd700');
+        VFXSpawner.explosion(this, CONFIG.CANVAS_W * 0.5, CONFIG.CANVAS_H * 0.5, 1.5);
+        this.postFX.addFlash('#ffd700', 0.5);
+        this.audio.playCombo();
+    },
+
+    triggerGrazeBonus() {
+        this.state.grazeSinceBonus = 0;
+        this.state.multiplier = Math.min(10, this.state.multiplier + 0.5);
+        VFXSpawner.text(this.effectPool, this.player.x, this.player.y - 40, 'GRAZE!', 24, '#ffd700');
+        VFXSpawner.ring(this.effectPool, this.player.x, this.player.y, '#ffd700', 5);
+        this.postFX.chroma = 4;
+        this._addDamageNumber(this.player.x, this.player.y - 20, 'GRAZE x' + this.state.multiplier.toFixed(1), false);
+        this._damageBoss(10);
+    },
+
+    _damageBoss(amount) {
+        if (this.state.bossDefeated) return;
+        const phaseIdx = this.boss.takeDamage(amount);
+        if (phaseIdx >= 0) {
+            this.triggerBossPhaseCutIn(phaseIdx);
+        }
+        if (this.boss.hp <= 0) {
+            this._onBossDefeat();
+        }
+    },
+
+    triggerLowHpWarning() {
+        this.cutIn.trigger('red', '残りHP 30%!', 80, '#ff0044');
+        this.postFX.addShake(10);
+        this.postFX.addFlash('#ff0044', 0.4);
+        this.audio.playSE(220, 'sawtooth', 0.5, 0.5, 0.2);
+    },
+
+    _addDamageNumber(x, y, text, crit) {
+        const el = document.createElement('div');
+        el.className = 'dmg-num' + (crit ? ' dmg-crit' : '');
+        el.textContent = text;
+        el.style.left = x + 'px';
+        el.style.top = y + 'px';
+        document.getElementById('damage-numbers').appendChild(el);
+        this.state.damageNumbers.push({ el: el, life: 60 });
+    },
+
+    _updateDamageNumbers() {
+        const nums = this.state.damageNumbers;
+        for (let i = nums.length - 1; i >= 0; i--) {
+            nums[i].life--;
+            if (nums[i].life <= 0) {
+                nums[i].el.remove();
+                nums[i] = nums[nums.length - 1];
+                nums.length--;
+            }
+        }
+    },
+
+    _updateHPBar() {
+        const ratio = this.boss.hp / this.boss.maxHp;
+        document.getElementById('hp-bar').style.width = (ratio * 100) + '%';
+        if (ratio <= 0.3 && this.state.lastHpRatio > 0.3) {
+            this.triggerLowHpWarning();
+        }
+        this.state.lastHpRatio = ratio;
+    },
+
+    _updateOverlay() {
+        const speed = 0.08;
+        this.state.overlayFade += (this.state.overlayTarget - this.state.overlayFade) * speed;
+        const overlay = document.getElementById('overlay');
+        overlay.style.opacity = this.state.overlayFade;
+        if (this.state.overlayFade < 0.05 && this.state.overlayTarget === 0) {
+            overlay.style.display = 'none';
+        } else if (this.state.overlayTarget === 1 && this.state.overlayFade > 0.5) {
+            overlay.style.display = 'flex';
+        }
+    },
+
+    _updateUI() {
+        const scoreEl = document.getElementById('score');
+        const ds = this.state.displayScore;
+        const ts = this.state.score;
+        if (ds < ts) {
+            this.state.displayScore += Math.max(1, ((ts - ds) * 0.15) | 0);
+        }
+        scoreEl.innerText = String(this.state.displayScore | 0).padStart(9, '0');
+
+        const comboEl = document.getElementById('combo-display');
+        if (this.state.combo > 10) {
+            comboEl.classList.add('show');
+            document.getElementById('combo-val').innerText = this.state.combo;
+        } else {
+            comboEl.classList.remove('show');
+        }
+
+        document.getElementById('multiplier').innerText = 'x' + this.state.multiplier.toFixed(1);
+        document.getElementById('fps-display').innerText = 'FPS: ' + (this.quality.avgFps | 0) +
+            ' | B:' + this.bulletPool.activeCount + ' E:' + this.effectPool.activeCount;
+    },
+
+    update() {
+        const frame = this.state.frame;
+
+        if (this.state.gamePhase === 'result') {
+            this.state.resultTimer--;
+            this.audio.updateBGM();
+            if (this.state.resultTimer <= 0) {
+                this.state.gamePhase = 'gameover';
+                this.gameOver();
+            }
+            this._updateEffects();
+            this._updateOverlay();
+            return;
+        }
+
+        if (!this.state.active) return;
+
+        this.audio.updateBGM();
+        this.player.update();
+        this._updatePlayerShoot();
+        this.boss.update(frame);
+        this.background.update(frame, this.quality);
+        this.cutIn.update();
+
+        if (this.state.feverTimer > 0) {
+            this.state.feverTimer--;
+            this.background.feverColor = (frame / 10) | 0;
+            if (this.state.feverTimer <= 0) {
+                this.state.feverMode = false;
+                this.background.feverMode = false;
+                this.rainbowMode = false;
+                this.background.rainbowMode = false;
+                this.boss.rainbow = false;
+                this.state.multiplier = 1;
+                this.postFX.setRotation(0);
+            }
+        }
+
+        if (this.state.bombActive) {
+            this.state.bombTimer--;
+            if (this.state.bombTimer <= 0) {
+                this.state.bombActive = false;
+                this.postFX.setZoom(1);
+            }
+        }
+
+        if (this.state.comboTimer > 0) {
+            this.state.comboTimer--;
+            if (this.state.comboTimer <= 0) this.state.combo = 0;
+        }
+
+        if (!this.state.bossDefeated) {
+            PatternGenerator.spawn(this, frame);
+
+            if (frame % 300 === 150 && !this.boss.spellActive) {
+                this.triggerSpellCard();
+            }
+
+            if (frame === 600 && !this.state.rainbowMode && Math.random() < 0.3) {
+                this.triggerRainbowMode();
+            }
+
+            if (this.boss.spellActive && frame % 180 === 0) {
+                this.boss.spellActive = false;
+            }
+        }
+
+        this._updateBullets();
+        this._updateShots();
+        this._updateLasers();
+        this._updateEffects();
+        this._updateDamageNumbers();
+        this._updateHPBar();
+        this._updateOverlay();
+        this._updateUI();
+
+        this.state.frame++;
+        this.state.score += (1 * this.state.multiplier) | 0;
+    },
+
+    _updatePlayerShoot() {
+        if (this.state.bossDefeated) return;
+        const p = this.player;
+        if (p.shootCooldown > 0) p.shootCooldown--;
+
+        const wantShoot = p.keys['KeyZ'] || p.autoShoot;
+        if (!wantShoot || p.shootCooldown > 0) return;
+
+        p.shootCooldown = CONFIG.PLAYER_SHOT_INTERVAL;
+        const shot = this.shotPool.acquire();
+        shot.init(p.x, p.y - 12);
+        this.audio.playShoot();
+    },
+
+    _updateShots() {
+        if (this.state.bossDefeated) return;
+        const shots = this.shotPool.activeList;
+        const boss = this.boss;
+        const hitR = CONFIG.BOSS_HIT_RADIUS + boss.phase * 5;
+        const hitSq = hitR * hitR;
+
+        for (let i = this.shotPool.activeCount - 1; i >= 0; i--) {
+            const s = shots[i];
+            if (!s.active) continue;
+
+            s.update();
+            if (s.isOut()) {
+                this.shotPool.releaseAt(i);
+                continue;
+            }
+
+            const dSq = Util.distSq(s.x, s.y, boss.x, boss.y);
+            if (dSq >= hitSq) continue;
+
+            const crit = Math.random() < 0.12;
+            const dmg = crit ? CONFIG.PLAYER_SHOT_DAMAGE * 3 : CONFIG.PLAYER_SHOT_DAMAGE;
+            this._damageBoss(dmg);
+            this.state.score += crit ? 2000 : 500;
+            this._addDamageNumber(boss.x + Util.rand(-20, 20), boss.y - 30, crit ? 'CRITICAL!' : String(dmg), crit);
+
+            if (crit) {
+                VFXSpawner.ring(this.effectPool, boss.x, boss.y, '#ff0044', 14);
+                this.postFX.addFlash('#ff0044', 0.25);
+            } else {
+                VFXSpawner.ring(this.effectPool, boss.x, boss.y, '#00ffff', 6);
+            }
+
+            const sparkCount = this.quality.scaledCount(crit ? 6 : 3);
+            VFXSpawner.burst(this.effectPool, s.x, s.y, sparkCount, EFFECT_TYPES.SPARK, { color: crit ? '#ff0044' : '#00ffff' });
+            this.shotPool.releaseAt(i);
+        }
+    },
+
+    _updateBullets() {
+        const bullets = this.bulletPool.activeList;
+        const px = this.player.x;
+        const py = this.player.y;
+        const hitSq = CONFIG.HITBOX_SQ;
+        const grazeSq = CONFIG.GRAZE_SQ;
+        const w = CONFIG.CANVAS_W;
+        const h = CONFIG.CANVAS_H;
+        const m = CONFIG.CULL_MARGIN;
+
+        for (let i = this.bulletPool.activeCount - 1; i >= 0; i--) {
+            const b = bullets[i];
+            if (!b.active) continue;
+
+            b.update();
+
+            if (b.isOut()) {
+                this.bulletPool.releaseAt(i);
+                continue;
+            }
+
+            if (!Util.inBounds(b.x, b.y, w, h, m)) continue;
+
+            const dSq = Util.distSq(b.x, b.y, px, py);
+            if (this.player.invincible <= 0 && dSq < hitSq) {
+                this.gameOver();
+                return;
+            }
+
+            if (!b.grazed && dSq < grazeSq) {
+                b.grazed = true;
+                const grazeScore = (500 * this.state.multiplier) | 0;
+                this.state.score += grazeScore;
+                this.state.combo++;
+                this.state.comboTimer = 120;
+                this.state.grazeTotal++;
+                this.state.grazeSinceBonus++;
+
+                this._damageBoss(2);
+
+                if (this.state.grazeSinceBonus >= CONFIG.GRAZE_INTERVAL) {
+                    this.triggerGrazeBonus();
+                }
+
+                for (let mi = 0; mi < CONFIG.COMBO_MILESTONES.length; mi++) {
+                    const ms = CONFIG.COMBO_MILESTONES[mi];
+                    if (this.state.combo >= ms && !this.state.milestoneHit[ms]) {
+                        this.state.milestoneHit[ms] = true;
+                        this.triggerComboMilestone(ms);
+                    }
+                }
+
+                this.audio.playSE(1200, 'sine', 0.03, 1, 0.05);
+                this.postFX.chroma = 3;
+            }
+        }
+    },
+
+    _updateLasers() {
+        const lasers = this.laserPool.activeList;
+        for (let i = this.laserPool.activeCount - 1; i >= 0; i--) {
+            const l = lasers[i];
+            if (!l.active) continue;
+            if (l.update()) {
+                this.laserPool.releaseAt(i);
+            }
+        }
+    },
+
+    _updateEffects() {
+        const effects = this.effectPool.activeList;
+        for (let i = this.effectPool.activeCount - 1; i >= 0; i--) {
+            const e = effects[i];
+            if (!e.active) continue;
+            if (e.update()) this.effectPool.releaseAt(i);
+        }
+    },
+
+    _onBossDefeat() {
+        this.state.bossDefeated = true;
+        this.state.gamePhase = 'result';
+        this.state.resultTimer = 300;
+
+        VFXSpawner.bossDefeat(this);
+        VFXSpawner.explosion(this, this.boss.x, this.boss.y, 5);
+
+        this.cutIn.trigger('rainbow', 'ボス撃破!', 120);
+        this.cutIn.trigger('gold', '大・当・り!', 120, '#ffd700');
+
+        this.postFX.addShake(30);
+        this.postFX.addFlash('#ffffff', 1);
+        this.postFX.chroma = 20;
+        this.postFX.setZoom(1.2);
+        this.postFX.setRotation(0.05);
+
+        this.audio.playExplosion();
+        this.audio.fadeOut(2);
+        this._vibrate([200, 100, 200, 100, 300]);
+
+        this.state.score += 1000000;
+
+        const boss = this.boss;
+        for (let i = 0; i < 8; i++) {
+            VFXSpawner.pillar(this.effectPool, boss.x + Util.rand(-100, 100), boss.y, 400, '#ffd700');
+        }
+    },
+
+    draw() {
+        const ctx = this.ctx;
+        const frame = this.state.frame;
+        const rainbow = this.rainbowMode || this.state.feverMode;
+        const trailAlpha = this.state.feverMode ? 0.08 : 0.15;
+
+        if (IS_FILE_PROTOCOL) {
+            // file:// では bgCanvas への drawImage も避け、背景を直接描画
+            this.background.draw(ctx, frame, this.quality);
+        } else {
+            this.background.draw(this.backend.bgCtx, frame, this.quality);
+            ctx.drawImage(this.backend.bgCanvas, 0, 0);
+        }
+
+        this.postFX.preDraw(trailAlpha * this.quality.effectMult);
+
+        this.boss.draw(ctx, frame, rainbow);
+
+        this._drawLasers(ctx, frame, rainbow);
+        this._drawBullets(ctx, frame, rainbow);
+        this._drawShots(ctx, frame, rainbow);
+
+        EffectRenderer.drawAll(ctx, this.effectPool.activeList, this.effectPool.activeCount, frame, rainbow);
+
+        this.player.draw(ctx, frame, rainbow);
+
+        this.cutIn.draw(ctx, CONFIG.CANVAS_W, CONFIG.CANVAS_H);
+
+        this.postFX.postDraw(this.quality);
+
+        if (this.state.gamePhase === 'result') {
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.fillRect(0, 0, CONFIG.CANVAS_W, CONFIG.CANVAS_H);
+            ctx.font = 'bold 36px "MS Mincho", serif';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#ffd700';
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.fillText('RESULT', CONFIG.CANVAS_W * 0.5, CONFIG.CANVAS_H * 0.4);
+            ctx.font = '24px "MS Mincho", serif';
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText('SCORE: ' + (this.state.score | 0), CONFIG.CANVAS_W * 0.5, CONFIG.CANVAS_H * 0.5);
+            ctx.globalCompositeOperation = 'source-over';
+        }
+    },
+
+    _drawShots(ctx, frame, rainbow) {
+        const shots = this.shotPool.activeList;
+        const count = this.shotPool.activeCount;
+        if (count === 0) return;
+
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = rainbow ? Util.rainbowColor(frame, 5) : '#00ffff';
+        for (let i = 0; i < count; i++) {
+            const s = shots[i];
+            if (!s.active) continue;
+            ctx.fillRect((s.x - 2) | 0, (s.y - 8) | 0, 4, 14);
+        }
+        ctx.globalCompositeOperation = 'source-over';
+    },
+
+    _drawBullets(ctx, frame, rainbow) {
+        const bullets = this.bulletPool.activeList;
+        const count = this.bulletPool.activeCount;
+        const w = CONFIG.CANVAS_W;
+        const h = CONFIG.CANVAS_H;
+        const m = CONFIG.CULL_MARGIN;
+
+        ctx.globalCompositeOperation = 'lighter';
+        let curColor = '';
+        let useSprite = false;
+        const bmp = this.backend.getBitmap('bullet_6');
+
+        for (let i = 0; i < count; i++) {
+            const b = bullets[i];
+            if (!b.active) continue;
+            if (!Util.inBounds(b.x, b.y, w, h, m)) continue;
+
+            let color;
+            if (b.grazed) {
+                color = '#ffffff';
+            } else if (rainbow || b.rainbow) {
+                color = CONFIG.COLORS.BULLET_RAINBOW[b.colorIdx];
+            } else {
+                color = CONFIG.COLORS.BULLET;
+            }
+
+            if (bmp && !b.grazed && !rainbow) {
+                if (!useSprite) {
+                    ctx.globalCompositeOperation = 'lighter';
+                    useSprite = true;
+                }
+                this.spriteBatch.add('bullet_6', b.x, b.y, 1, 0);
+            } else {
+                if (color !== curColor) {
+                    ctx.fillStyle = color;
+                    curColor = color;
+                }
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        this.spriteBatch.flush(ctx, this.backend);
+        this.spriteBatch.clear();
+        ctx.globalCompositeOperation = 'source-over';
+    },
+
+    _drawLasers(ctx, frame, rainbow) {
+        const lasers = this.laserPool.activeList;
+        const count = this.laserPool.activeCount;
+        if (count === 0) return;
+
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.lineCap = 'round';
+
+        for (let i = 0; i < count; i++) {
+            const l = lasers[i];
+            if (!l.active) continue;
+            const alpha = l.life / l.maxLife;
+            ctx.globalAlpha = alpha;
+            ctx.lineWidth = l.width * alpha;
+            if (rainbow || l.rainbow) {
+                ctx.strokeStyle = CONFIG.COLORS.LASER_RAINBOW[(frame + i) % 6];
+            } else {
+                ctx.strokeStyle = CONFIG.COLORS.LASER_GOLD;
+            }
+            ctx.beginPath();
+            ctx.moveTo(l.x1, l.y1);
+            ctx.lineTo(l.x2, l.y2);
+            ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = 'source-over';
+    },
+
+    loop(timestamp) {
+        if (!this.state.active && this.state.gamePhase !== 'result') return;
+
+        this.quality.tick(timestamp);
+
+        const elapsed = timestamp - this._lastTimestamp;
+        this._lastTimestamp = timestamp;
+
+        this.update();
+        this.draw();
+
+        this.state.loopId = requestAnimationFrame((ts) => this.loop(ts));
+    },
+
+    gameOver() {
+
+    this.audio.playSE(110, 'sawtooth', 0.6, 0.2, 0.2);
+    this.postFX.addShake(30);
+    this.postFX.chroma = 15;
+
+    // 0.5秒後に即リスタート
+    setTimeout(() => {
+        this.start();
+    }, 500);
+
+},
+
+    destroy() {
+        if (this.state.loopId) cancelAnimationFrame(this.state.loopId);
+        window.removeEventListener('keydown', this._onKeyDown);
+        window.removeEventListener('keyup', this._onKeyUp);
+        if (this._onTouch) this.canvas.removeEventListener('touchmove', this._onTouch);
+        if (this._onTouchStart) this.canvas.removeEventListener('touchstart', this._onTouchStart);
+        this.audio.destroy();
+    }
+};
+
+window.addEventListener('load', () => App.init());
+window.addEventListener('beforeunload', () => App.destroy());
+</script>
+</body>
+</html>
