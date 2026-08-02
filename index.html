@@ -80,7 +80,7 @@ const CONFIG = {
     GRAZE_INTERVAL: 8,
     BPM: 155,
     BOSS_MAX_HP: 10000,
-    BOMB_COUNT: 3,
+    BOMB_COUNT: 5,
     PLAYER_SHOT_SPEED: 14,
     PLAYER_SHOT_INTERVAL: 3,
     PLAYER_SHOT_DAMAGE: 15,
@@ -1555,14 +1555,30 @@ const App = {
         window.addEventListener('keyup', this._onKeyUp);
 
         this._onTouchStart = (e) => {
-            if (!this.state.active) return;
-            this.player.autoShoot = true;
-            this.player.focus = true;
-            const rect = this.canvas.getBoundingClientRect();
-            const t = e.touches[0];
-            this.player.x = (t.clientX - rect.left) * (CONFIG.CANVAS_W / rect.width);
-            this.player.y = (t.clientY - rect.top) * (CONFIG.CANVAS_H / rect.height);
-        };
+    if (!this.state.active) return;
+
+    const now = performance.now();
+
+    // 0.5秒以内のダブルタップでボム
+    if (
+        now - this.lastTapTime <= 500 &&
+        this.player.bombs > 0 &&
+        !this.state.bombActive
+    ) {
+        this.activateBomb();
+    }
+
+    this.lastTapTime = now;
+
+    this.player.autoShoot = true;
+    this.player.focus = true;
+
+    const rect = this.canvas.getBoundingClientRect();
+    const t = e.touches[0];
+
+    this.player.x = (t.clientX - rect.left) * (CONFIG.CANVAS_W / rect.width);
+    this.player.y = (t.clientY - rect.top) * (CONFIG.CANVAS_H / rect.height);
+};
         this.canvas.addEventListener('touchstart', this._onTouchStart, { passive: false });
         this.canvas.addEventListener('touchmove', this._onTouch = (e) => {
             e.preventDefault();
