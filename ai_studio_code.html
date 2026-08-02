@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>正露丸2000 - ULTIMATE LUNATIC (FULL STABLE)</title>
+    <style>
+        body { margin: 0; background: #000; color: #d4af37; overflow: hidden; font-family: "MS Mincho", "serif"; touch-action: none; }
+        #game-container { position: relative; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; background: #1a150e; }
+        canvas { background: #000; max-width: 100%; max-height: 100%; aspect-ratio: 3 / 4; border: 4px solid #d4af37; box-shadow: 0 0 30px rgba(212,175,55,0.4); cursor: none; }
+        #ui { position: absolute; top: 10px; right: 10px; pointer-events: none; text-align: right; z-index: 10; padding: 10px; background: rgba(0,0,0,0.4); }
+        .val { font-size: 20px; font-weight: bold; color: #fff; text-shadow: 0 0 5px #d4af37; }
+        .label { font-size: 11px; color: #d4af37; }
+        #hp-container { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 60%; height: 6px; background: rgba(255,255,255,0.2); border: 1px solid #fff; z-index: 5; }
+        #hp-bar { width: 100%; height: 100%; background: linear-gradient(to right, #ff0000, #ffaa00); transition: width 0.1s linear; }
+        #stage-label { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); font-size: 11px; color: #fff; z-index: 5; text-shadow: 0 0 4px #000; }
+        #bomb-btn { position: absolute; bottom: 30px; right: 30px; width: 80px; height: 80px; background: rgba(212,175,55,0.3); border: 3px solid #d4af37; border-radius: 50%; color: #fff; font-weight: bold; display: flex; justify-content: center; align-items: center; z-index: 100; user-select: none; cursor: pointer; }
+        #spell-ui { position: absolute; top: 40px; right: -500px; padding: 10px 40px; background: rgba(0,0,0,0.8); border-left: 5px solid #d4af37; color: #fff; font-weight: bold; font-style: italic; transition: right 0.8s; z-index: 8; }
+        #overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.85); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 1000; text-align: center; }
+        #difficulty { margin:20px; padding:10px 20px; font-size:24px; background:#000; color:#fff; border:2px solid #d4af37; }
+        .btn { padding: 15px 50px; font-size: 24px; background: #d4af37; color: #000; border: none; font-weight: bold; cursor: pointer; box-shadow: 0 0 15px #d4af37; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+    <div id="hp-container"><div id="hp-bar"></div></div>
+    <div id="stage-label"></div>
+    <div id="spell-ui">喇叭符「正露丸二千」</div>
+    <div id="ui">
+        <div class="label">SCORE</div><div id="score" class="val">000000000</div>
+        <div class="label">LIFE (腹の調子)</div><div id="lives" class="val" style="color:#ff5555;">♥♥♥</div>
+        <div class="label">BOMB (正露丸)</div><div id="bombs" class="val" style="color:#55ff55;">★★★</div>
+        <div class="label">GRAZE (耐性)</div><div id="graze" class="val">0</div>
+    </div>
+    <div id="bomb-btn">BOMB</div>
+    <div id="overlay">
+        <h1 id="title">正露丸2000</h1>
+        <p id="sub">～ 喇叭のマークの弾幕結界 ～</p>
+        <select id="difficulty">
+            <option value="EASY">EASY (従来NORMAL)</option>
+            <option value="NORMAL">NORMAL (密度強化)</option>
+            <option value="HARD">HARD (凶悪速度)</option>
+            <option value="LUNATIC" selected>LUNATIC (絶望の15倍密度)</option>
+        </select>
+        <br><br>
+        <button class="btn" onclick="startOrRestart()">服用開始</button>
+    </div>
+</div>
+
+<script>
+/**
+ * =========================================================================
+ * 1. 基本設定・難易度定義
+ * =========================================================================
+ */
+const CONFIG = {
+    WIDTH: 600,
+    HEIGHT: 800,
+    BPM: 140,
+    PLAYER_HITBOX: 1.5, // 弾幕が濃いため当たり判定を極限まで小さく
+    GRAZE_HITBOX: 35
+};
+
+// 難易度設定。LUNATICはEASY(従来基準)の15倍の弾数、3倍の速度
+const DIFFICULTY = {
+    EASY:    { bulletMul: 1.0,  speedMul: 1.0, freqMul: 1.0, bossMove: false, hp: 10000 },
+    NORMAL:  { bulletMul: 3.0,  speedMul: 1.3, freqMul: 1.5, bossMove: true,  hp: 30000 },
+    HARD:    { bulletMul: 7.0,  speedMul: 1.8, freqMul: 2.2, bossMove: true,  hp: 60000 },
+    LUNATIC: { bulletMul: 15.0, speedMul: 2.5, freqMul: 4.0, bossMove: true,  hp: 120000 }
+};
+
+const STAGE_TIMES = { INTRO: 3, SPELL1: 15, SPELL2: 40, SPELL3: 65, FINAL: 90 };
+const SPELL_NAMES = {
+    spell1: '蔓延符「らせん乱舞・地獄変」',
+    spell2: '凝縮符「金環十字・極光」',
+    spell3: '加速符「渦動体・暗黒物質」',
+    final: '終焉符「正露丸二千・完全生命体」'
+};
+const FORM_COLORS = { 1: '#d4af37', 2: '#e74c3c', 3: '#f5f5f5' };
+
+let difficulty = "NORMAL";
+let state = {
+    score: 0, lives: 3, bombs: 3, graze: 0,
+    bossHp: 10000, maxBossHp: 10000,
+    active: false, lastBeat: -1, spellActive: false,
+    loopId: null, bombFlash: 0, stage: 'intro',
+    patternIndex: 0, flashAlpha: 0, shake: 0, spellUITimeout: null,
+    angS: 0, angC: 0, angR: 0, angP: 0
+};
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+canvas.width = CONFIG.WIDTH; canvas.height = CONFIG.HEIGHT;
+const audio = new Audio('music.mp3');
+const keys = {};
+
+/**
+ * =========================================================================
+ * 2. 入力処理
+ * =========================================================================
+ */
+window.onkeydown = e => keys[e.code] = true;
+window.onkeyup = e => keys[e.code] = false;
+
+let touchLast = { x: 0, y: 0 };
+canvas.addEventListener('touchstart', e => { touchLast = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }, { passive: false });
+canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (!state.active) return;
+    const dx = (e.touches[0].clientX - touchLast.x) * 1.8;
+    const dy = (e.touches[0].clientY - touchLast.y) * 1.8;
+    player.x = Math.max(10, Math.min(590, player.x + dx));
+    player.y = Math.max(10, Math.min(790, player.y + dy));
+    touchLast = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+}, { passive: false });
+
+document.getElementById('bomb-btn').addEventListener('click', () => { if (state.active) useBomb(); });
+
+/**
+ * =========================================================================
+ * 3. スプライトキャッシュ
+ * =========================================================================
+ */
+function createBulletCache(color, size, blurColor) {
+    const c = document.createElement('canvas');
+    const s = size * 4; c.width = c.height = s;
+    const t = c.getContext('2d');
+    t.shadowBlur = size; t.shadowColor = blurColor || color;
+    t.fillStyle = color; t.beginPath(); t.arc(s / 2, s / 2, size / 2, 0, Math.PI * 2); t.fill();
+    return c;
+}
+
+const SPRITES = {
+    BLUE: createBulletCache("#0cf", 10), GOLD: createBulletCache("#d4af37", 14, "#ffaa00"),
+    RED: createBulletCache("#f44", 10), WHITE: createBulletCache("#fff", 6),
+    PLAYER: createBulletCache("#0ff", 8), PURPLE: createBulletCache("#a0f", 9, "#d0f"),
+    PINK: createBulletCache("#f6a", 10, "#faf"), ORANGE: createBulletCache("#fa0", 12, "#ffd"),
+    RICE: createBulletCache("#ff8", 5), OPTION: createBulletCache("#0ff", 8, "#fff")
+};
+
+/**
+ * =========================================================================
+ * 4. クラス定義 (弾・レーザー・エフェクト)
+ * =========================================================================
+ */
+class Bullet {
+    constructor(x, y, ang, speed, size, sprite, opts = {}) {
+        this.x = x; this.y = y; this.angle = ang; this.speed = speed;
+        this.vx = Math.cos(ang) * speed; this.vy = Math.sin(ang) * speed;
+        this.size = size / 2.5; // 当たり判定の最適化
+        this.sprite = sprite; this.active = true; this.grazed = false;
+        this.delay = opts.delay || 0; this.curve = opts.curve || 0;
+    }
+    update() {
+        if (this.delay > 0) { this.delay--; return; }
+        if (this.curve !== 0) {
+            this.angle += this.curve;
+            this.vx = Math.cos(this.angle) * this.speed;
+            this.vy = Math.sin(this.angle) * this.speed;
+        }
+        this.x += this.vx; this.y += this.vy;
+        if (this.x < -60 || this.x > 660 || this.y < -60 || this.y > 860) this.active = false;
+    }
+    draw() {
+        if (this.delay > 0) {
+            if (Math.floor(this.delay / 4) % 2 === 0) {
+                ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.beginPath();
+                ctx.arc(this.x, this.y, 8, 0, Math.PI * 2); ctx.stroke();
+            }
+            return;
+        }
+        ctx.drawImage(this.sprite, this.x - this.sprite.width/2, this.y - this.sprite.height/2);
+    }
+}
+
+class Laser {
+    constructor(x, y, angle, length, width) {
+        this.x = x; this.y = y; this.angle = angle; this.length = length; this.width = width;
+        this.state = 'warn'; this.timer = 40; this.activeTimer = 40; this.active = true;
+    }
+    update() {
+        if (this.state === 'warn') { if (--this.timer <= 0) this.state = 'active'; }
+        else { if (--this.activeTimer <= 0) this.active = false; }
+    }
+    draw() {
+        const ex = this.x + Math.cos(this.angle) * this.length;
+        const ey = this.y + Math.sin(this.angle) * this.length;
+        ctx.save();
+        if (this.state === 'warn') {
+            ctx.strokeStyle = "rgba(255,0,0,0.3)"; ctx.lineWidth = 2; ctx.setLineDash([10,10]);
+        } else {
+            ctx.strokeStyle = "#fff"; ctx.lineWidth = this.width; ctx.shadowBlur = 15; ctx.shadowColor = "red";
+        }
+        ctx.beginPath(); ctx.moveTo(this.x, this.y); ctx.lineTo(ex, ey); ctx.stroke();
+        ctx.restore();
+    }
+    hitTest(px, py) {
+        if (this.state !== 'active') return false;
+        const dx = Math.cos(this.angle), dy = Math.sin(this.angle);
+        const t = (px - this.x) * dx + (py - this.y) * dy;
+        if (t < 0 || t > this.length) return false;
+        const cx = this.x + dx * t, cy = this.y + dy * t;
+        return Math.hypot(px - cx, py - cy) < this.width / 2 + 1.5;
+    }
+}
+
+class Effect {
+    constructor(x, y, color, type = 'ring') {
+        this.x = x; this.y = y; this.color = color; this.type = type;
+        this.life = 25; this.r = 5; this.active = true;
+    }
+    update() { if (--this.life <= 0) this.active = false; this.r += 4; }
+    draw() {
+        ctx.save(); ctx.globalAlpha = this.life / 25; ctx.strokeStyle = this.color;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2); ctx.stroke();
+        ctx.restore();
+    }
+}
+
+/**
+ * =========================================================================
+ * 5. 自機・ボス管理
+ * =========================================================================
+ */
+const player = {
+    x: 300, y: 700, inv: 0,
+    options: [{ x: 0, y: 0 }, { x: 0, y: 0 }],
+    update() {
+        const slow = keys['ShiftLeft'] || keys['ShiftRight'];
+        const s = slow ? 2.2 : 6.0;
+        if (keys['ArrowUp'] && this.y > 20) this.y -= s;
+        if (keys['ArrowDown'] && this.y < 780) this.y += s;
+        if (keys['ArrowLeft'] && this.x > 20) this.x -= s;
+        if (keys['ArrowRight'] && this.x < 580) this.x += s;
+        if (this.inv > 0) this.inv--;
+
+        // オプション位置
+        this.options[0].x = this.x + (slow ? -18 : -40); this.options[0].y = this.y + 10;
+        this.options[1].x = this.x + (slow ? 18 : 40); this.options[1].y = this.y + 10;
+
+        if (state.active && keys['KeyZ'] && Date.now() - lastShot > 80) {
+            lastShot = Date.now();
+            playerBullets.push(new Bullet(this.x, this.y - 15, -Math.PI/2, 16, 10, SPRITES.PLAYER));
+            playerBullets.push(new Bullet(this.options[0].x, this.options[0].y, -Math.PI/2, 16, 8, SPRITES.OPTION));
+            playerBullets.push(new Bullet(this.options[1].x, this.options[1].y, -Math.PI/2, 16, 8, SPRITES.OPTION));
+        }
+    },
+    draw() {
+        if (this.inv % 4 > 1) return;
+        ctx.fillStyle = "white"; ctx.beginPath();
+        ctx.moveTo(this.x, this.y - 18); ctx.lineTo(this.x - 15, this.y + 15); ctx.lineTo(this.x + 15, this.y + 15); ctx.fill();
+        ctx.fillStyle = "red"; ctx.beginPath(); ctx.arc(this.x, this.y, 3, 0, Math.PI * 2); ctx.fill();
+        if (keys['ShiftLeft'] || keys['ShiftRight']) {
+            ctx.strokeStyle = "white"; ctx.beginPath(); ctx.arc(this.x, this.y, 8, 0, Math.PI*2); ctx.stroke();
+        }
+    }
+};
+
+const boss = { x: 300, y: 150, form: 1 };
+let bullets = [], playerBullets = [], lasers = [], effects = [];
+let lastShot = 0;
+
+/**
+ * =========================================================================
+ * 6. 弾幕パターン (22種類)
+ * =========================================================================
+ */
+function p1_spiral(d) {
+    const n = Math.floor(10 * d.bulletMul); state.angS += 0.15;
+    for(let i=0; i<n; i++) bullets.push(new Bullet(boss.x, boss.y, state.angS + i*(Math.PI*2/n), 3*d.speedMul, 10, SPRITES.BLUE));
+}
+function p2_doubleSpiral(d) {
+    const n = Math.floor(8 * d.bulletMul); state.angS += 0.2;
+    for(let i=0; i<n; i++) {
+        bullets.push(new Bullet(boss.x, boss.y, state.angS + i*(Math.PI*2/n), 3.5*d.speedMul, 10, SPRITES.GOLD));
+        bullets.push(new Bullet(boss.x, boss.y, -state.angS + i*(Math.PI*2/n), 3.5*d.speedMul, 10, SPRITES.GOLD));
+    }
+}
+function p3_quintuple(d) {
+    const n = 5; state.angS += 0.05;
+    for(let i=0; i<n; i++) {
+        const a = state.angS + i*(Math.PI*2/n);
+        for(let j=0; j<Math.floor(d.bulletMul*2); j++) bullets.push(new Bullet(boss.x, boss.y, a + j*0.02, 4*d.speedMul, 8, SPRITES.PURPLE));
+    }
+}
+function p4_ring(d) {
+    const n = Math.floor(30 * d.bulletMul);
+    for(let i=0; i<n; i++) bullets.push(new Bullet(boss.x, boss.y, i*(Math.PI*2/n), 2.5*d.speedMul, 12, SPRITES.GOLD));
+}
+function p5_rotRing(d) {
+    const n = Math.floor(20 * d.bulletMul); state.angR += 0.1;
+    for(let i=0; i<n; i++) bullets.push(new Bullet(boss.x, boss.y, state.angR + i*(Math.PI*2/n), 3*d.speedMul, 10, SPRITES.BLUE));
+}
+function p6_giantRing(d) {
+    const n = Math.floor(40 * d.bulletMul);
+    for(let i=0; i<n; i++) {
+        const a = i*(Math.PI*2/n);
+        bullets.push(new Bullet(boss.x + Math.cos(a)*50, boss.y + Math.sin(a)*50, a, 2*d.speedMul, 14, SPRITES.ORANGE));
+    }
+}
+function p7_gappedRing(d) {
+    const n = Math.floor(50 * d.bulletMul); const gap = Math.random()*6;
+    for(let i=0; i<n; i++) {
+        const a = i*(Math.PI*2/n);
+        if(Math.abs(a - gap) % (Math.PI*2) > 0.5) bullets.push(new Bullet(boss.x, boss.y, a, 3*d.speedMul, 10, SPRITES.RED));
+    }
+}
+function p8_aimed(d) {
+    const a = Math.atan2(player.y - boss.y, player.x - boss.x);
+    for(let i=0; i<Math.floor(d.bulletMul); i++) bullets.push(new Bullet(boss.x, boss.y, a + (i-d.bulletMul/2)*0.05, 6*d.speedMul, 10, SPRITES.RED));
+}
+function p9_fastAimed(d) {
+    const a = Math.atan2(player.y - boss.y, player.x - boss.x);
+    bullets.push(new Bullet(boss.x, boss.y, a, 9*d.speedMul, 8, SPRITES.WHITE));
+}
+function p10_scatter(d) {
+    for(let i=0; i<Math.floor(10*d.bulletMul); i++) bullets.push(new Bullet(boss.x, boss.y, Math.random()*Math.PI*2, (2+Math.random()*4)*d.speedMul, 8, SPRITES.WHITE));
+}
+function p11_star(d) {
+    state.angP += 0.15;
+    for(let i=0; i<5; i++) {
+        const a = state.angP + i*(Math.PI*2*2/5);
+        for(let j=0; j<Math.floor(d.bulletMul); j++) bullets.push(new Bullet(boss.x, boss.y, a, (3+j*0.2)*d.speedMul, 10, SPRITES.ORANGE));
+    }
+}
+function p12_petal(d) {
+    const n = Math.floor(15 * d.bulletMul); state.angP += 0.1;
+    for(let i=0; i<n; i++) {
+        const t = i*(Math.PI*2/n);
+        const s = (2 + Math.abs(Math.cos(t*3))*3)*d.speedMul;
+        bullets.push(new Bullet(boss.x, boss.y, t + state.angP, s, 10, SPRITES.PINK));
+    }
+}
+function p13_cross(d) {
+    for(let i=0; i<4; i++) {
+        const a = i*(Math.PI/2);
+        for(let j=0; j<Math.floor(d.bulletMul); j++) bullets.push(new Bullet(boss.x, boss.y, a, (2+j*0.5)*d.speedMul, 10, SPRITES.BLUE));
+    }
+}
+function p14_rotCross(d) {
+    state.angC += 0.08;
+    for(let i=0; i<4; i++) {
+        const a = state.angC + i*(Math.PI/2);
+        for(let j=0; j<Math.floor(d.bulletMul); j++) bullets.push(new Bullet(boss.x, boss.y, a, (2+j*0.5)*d.speedMul, 10, SPRITES.GOLD));
+    }
+}
+function p15_wave(d) {
+    for(let i=0; i<Math.floor(12*d.bulletMul); i++) {
+        const x = (i / (12*d.bulletMul)) * 600;
+        bullets.push(new Bullet(x, -10, Math.PI/2 + Math.sin(i*0.5)*0.4, 3*d.speedMul, 8, SPRITES.WHITE));
+    }
+}
+function p16_knife(d) {
+    const a = Math.atan2(player.y-boss.y, player.x-boss.x);
+    for(let i=0; i<Math.floor(3*d.bulletMul); i++) bullets.push(new Bullet(boss.x, boss.y, a + (Math.random()-0.5)*0.4, 8*d.speedMul, 6, SPRITES.PURPLE));
+}
+function p17_rice(d) {
+    for(let i=0; i<Math.floor(20*d.bulletMul); i++) bullets.push(new Bullet(boss.x, boss.y, Math.random()*6.28, (2+Math.random()*2)*d.speedMul, 5, SPRITES.RICE));
+}
+function p18_rain(d) {
+    for(let i=0; i<Math.floor(5*d.bulletMul); i++) bullets.push(new Bullet(Math.random()*600, -20, Math.PI/2, (3+Math.random()*3)*d.speedMul, 8, SPRITES.WHITE));
+}
+function p19_wall(d) {
+    const g = Math.random()*500;
+    for(let x=0; x<600; x+=20) if(x<g || x>g+100) bullets.push(new Bullet(x, -20, Math.PI/2, 3*d.speedMul, 12, SPRITES.RED));
+}
+function p20_vortex(d) {
+    const n = Math.floor(10*d.bulletMul);
+    for(let i=0; i<n; i++) bullets.push(new Bullet(boss.x, boss.y, i*(Math.PI*2/n), 3*d.speedMul, 8, SPRITES.BLUE, {curve: 0.03}));
+}
+function p21_delay(d) {
+    const n = Math.floor(15*d.bulletMul);
+    for(let i=0; i<n; i++) bullets.push(new Bullet(boss.x, boss.y, i*(Math.PI*2/n), 4*d.speedMul, 10, SPRITES.ORANGE, {delay: 50}));
+}
+function p22_laser(d) {
+    const a = Math.atan2(player.y-boss.y, player.x-boss.x);
+    const count = difficulty === "LUNATIC" ? 5 : 1;
+    for(let i=0; i<count; i++) lasers.push(new Laser(boss.x, boss.y, a + (i-count/2)*0.5, 900, 12 * d.speedMul));
+}
+
+/**
+ * =========================================================================
+ * 7. メインループ・進行管理
+ * =========================================================================
+ */
+const PATTERN_LIST = {
+    normal: [p1_spiral, p4_ring, p10_scatter, p13_cross],
+    spell1: [p2_doubleSpiral, p15_wave, p16_knife, p18_rain],
+    spell2: [p3_quintuple, p5_rotRing, p12_petal, p7_gappedRing],
+    spell3: [p11_star, p20_vortex, p19_wall, p22_laser],
+    final:  [p14_rotCross, p6_giantRing, p17_rice, p21_delay, p22_laser, p9_fastAimed]
+};
+
+function gameLoop() {
+    if (!state.active) return;
+
+    const time = audio.currentTime;
+    const beat = Math.floor(time / (60 / CONFIG.BPM));
+    const d = DIFFICULTY[difficulty];
+
+    // 弾幕生成
+    if (beat !== state.lastBeat) {
+        state.lastBeat = beat;
+        const stage = getStage(time);
+        handleStageTransition(stage);
+        if (stage !== 'intro') {
+            const list = PATTERN_LIST[stage] || PATTERN_LIST.normal;
+            list[state.patternIndex % list.length](d);
+            state.patternIndex++;
+            // LUNATICでは常に自機狙いを混ぜる
+            if(difficulty === "LUNATIC") p8_aimed(d);
+        }
+    }
+
+    // ボス移動
+    if (d.bossMove && time > STAGE_TIMES.INTRO) {
+        boss.x = 300 + Math.sin(time * 0.7) * 200;
+        boss.y = 150 + Math.cos(time * 0.4) * 60;
+    }
+
+    player.update();
+
+    // 当たり判定・更新 (安全な逆ループ)
+    for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        if (!b) { bullets.splice(i, 1); continue; }
+        b.update();
+        if (!b.active) { bullets.splice(i, 1); continue; }
+
+        if (b.delay <= 0 && player.inv <= 0) {
+            const dist = Math.hypot(b.x - player.x, b.y - player.y);
+            if (dist < b.size + CONFIG.PLAYER_HITBOX) {
+                onPlayerHit(); bullets.splice(i, 1);
+            } else if (!b.grazed && dist < CONFIG.GRAZE_HITBOX) {
+                b.grazed = true; state.graze++; state.score += 20;
+            }
+        }
+    }
+
+    for (let i = lasers.length - 1; i >= 0; i--) {
+        const l = lasers[i];
+        if (!l) { lasers.splice(i, 1); continue; }
+        l.update();
+        if (!l.active) { lasers.splice(i, 1); continue; }
+        if (player.inv <= 0 && l.hitTest(player.x, player.y)) onPlayerHit();
+    }
+
+    for (let i = playerBullets.length - 1; i >= 0; i--) {
+        const pb = playerBullets[i];
+        if (!pb) { playerBullets.splice(i, 1); continue; }
+        pb.update();
+        if (!pb.active) { playerBullets.splice(i, 1); continue; }
+        if (Math.hypot(pb.x - boss.x, pb.y - boss.y) < 60) {
+            state.bossHp -= 30; state.score += 50; pb.active = false;
+            if (state.bossHp <= 0) { end("胃腸改善！完全復活！"); return; }
+        }
+    }
+
+    for (let i = effects.length - 1; i >= 0; i--) {
+        const fx = effects[i];
+        if (!fx) { effects.splice(i, 1); continue; }
+        fx.update();
+        if (!fx.active) effects.splice(i, 1);
+    }
+
+    /* --- 描画 --- */
+    ctx.clearRect(0, 0, 600, 800);
+    // ボス
+    const color = FORM_COLORS[boss.form];
+    ctx.fillStyle = color; ctx.shadowBlur = 25; ctx.shadowColor = color;
+    ctx.beginPath(); ctx.arc(boss.x, boss.y, 45, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // 弾
+    ctx.globalCompositeOperation = "lighter";
+    for(let b of bullets) b.draw();
+    for(let l of lasers) l.draw();
+    for(let pb of playerBullets) pb.draw();
+    ctx.globalCompositeOperation = "source-over";
+
+    player.draw();
+    for(let fx of effects) fx.draw();
+
+    // UI
+    document.getElementById('score').innerText = String(state.score).padStart(9, '0');
+    document.getElementById('lives').innerText = state.lives >= 0 ? "♥♥♥".slice(0, state.lives) : "胃潰瘍";
+    document.getElementById('graze').innerText = state.graze;
+    document.getElementById('hp-bar').style.width = (Math.max(0, state.bossHp)/state.maxBossHp*100) + "%";
+
+    if (state.lives < 0) { end("胃が壊れました..."); return; }
+    state.loopId = requestAnimationFrame(gameLoop);
+}
+
+function getStage(time) {
+    if (time < STAGE_TIMES.INTRO) return 'intro';
+    if (time < STAGE_TIMES.SPELL1) return 'normal';
+    if (time < STAGE_TIMES.SPELL2) return 'spell1';
+    if (time < STAGE_TIMES.SPELL3) return 'spell2';
+    if (time < STAGE_TIMES.FINAL) return 'spell3';
+    return 'final';
+}
+
+function handleStageTransition(stage) {
+    if (state.stage === stage) return;
+    state.stage = stage;
+    const name = SPELL_NAMES[stage];
+    if (name) {
+        const ui = document.getElementById('spell-ui');
+        ui.innerText = name; ui.style.right = "0px";
+        setTimeout(() => ui.style.right = "-500px", 4000);
+        state.flashAlpha = 1;
+        if (difficulty === "LUNATIC" || difficulty === "HARD") boss.form = (stage === 'final') ? 3 : 2;
+    }
+}
+
+function onPlayerHit() {
+    if (player.inv > 0) return;
+    state.lives--; player.inv = 130;
+    bullets = []; lasers = [];
+    effects.push(new Effect(player.x, player.y, "red", "ring"));
+}
+
+function useBomb() {
+    if (state.bombs <= 0 || player.inv > 50) return;
+    state.bombs--; player.inv = 200;
+    bullets = []; lasers = [];
+    effects.push(new Effect(player.x, player.y, "gold", "ring"));
+}
+
+function startOrRestart() {
+    difficulty = document.getElementById('difficulty').value;
+    const d = DIFFICULTY[difficulty];
+    if (state.loopId) cancelAnimationFrame(state.loopId);
+    state = {
+        score: 0, lives: 3, bombs: 3, graze: 0, bossHp: d.hp, maxBossHp: d.hp,
+        active: true, lastBeat: -1, stage: 'intro', patternIndex: 0,
+        angS:0, angC:0, angR:0, angP:0
+    };
+    bullets = []; playerBullets = []; lasers = []; effects = [];
+    player.x = 300; player.y = 700; player.inv = 0; boss.x = 300; boss.y = 150; boss.form = 1;
+    document.getElementById('overlay').style.display = 'none';
+    audio.currentTime = 0; audio.play().catch(() => {});
+    gameLoop();
+}
+
+function end(msg) {
+    state.active = false; audio.pause();
+    document.getElementById('overlay').style.display = 'flex';
+    document.getElementById('title').innerText = msg;
+    document.getElementById('sub').innerText = "SCORE: " + state.score;
+}
+</script>
+</body>
+</html>
