@@ -228,23 +228,33 @@ const player = {
     x: 300, y: 700, inv: 0,
     options: [{ x: 0, y: 0 }, { x: 0, y: 0 }],
     update() {
-        const slow = keys['ShiftLeft'] || keys['ShiftRight'];
-        const s = slow ? 2.2 : 6.0;
+        // --- 移動処理 ---
+        const slow = keys['ShiftLeft'] || keys['ShiftRight'] || false;
+        const s = slow ? 2.4 : 6.2;
         if (keys['ArrowUp'] && this.y > 20) this.y -= s;
         if (keys['ArrowDown'] && this.y < 780) this.y += s;
         if (keys['ArrowLeft'] && this.x > 20) this.x -= s;
         if (keys['ArrowRight'] && this.x < 580) this.x += s;
         if (this.inv > 0) this.inv--;
 
-        // オプション位置
-        this.options[0].x = this.x + (slow ? -18 : -40); this.options[0].y = this.y + 10;
-        this.options[1].x = this.x + (slow ? 18 : 40); this.options[1].y = this.y + 10;
+        this.options[0].x = this.x + (slow ? -18 : -42); this.options[0].y = this.y + 8;
+        this.options[1].x = this.x + (slow ? 18 : 42); this.options[1].y = this.y + 8;
 
-        if (state.active && keys['KeyZ'] && Date.now() - lastShot > 80) {
-            lastShot = Date.now();
-            playerBullets.push(new Bullet(this.x, this.y - 15, -Math.PI/2, 16, 10, SPRITES.PLAYER));
-            playerBullets.push(new Bullet(this.options[0].x, this.options[0].y, -Math.PI/2, 16, 8, SPRITES.OPTION));
-            playerBullets.push(new Bullet(this.options[1].x, this.options[1].y, -Math.PI/2, 16, 8, SPRITES.OPTION));
+        // --- オートショット処理 (ここを修正) ---
+        // 指やキーの入力をチェックせず、state.active(ゲーム中)なら常に実行
+        const now = Date.now();
+        const fireInterval = 75; // 発射間隔(ms) 75ms = 1秒間に約13.3発
+
+        if (state.active && now - lastShot >= fireInterval) {
+            // 前回の発射からの経過時間をチェックするため、nowで上書き
+            // (フレームを跨いでも一定のミリ秒経過で必ず発射されます)
+            lastShot = now; 
+
+            // 本体弾
+            playerBullets.push(new Bullet(this.x, this.y - 15, -Math.PI/2, 17, 10, SPRITES.PLAYER));
+            // オプション弾
+            playerBullets.push(new Bullet(this.options[0].x, this.options[0].y, -Math.PI/2, 17, 8, SPRITES.OPTION));
+            playerBullets.push(new Bullet(this.options[1].x, this.options[1].y, -Math.PI/2, 17, 8, SPRITES.OPTION));
         }
     },
     draw() {
