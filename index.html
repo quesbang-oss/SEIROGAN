@@ -243,7 +243,7 @@ const player = {
         // --- オートショット処理 (ここを修正) ---
         // 指やキーの入力をチェックせず、state.active(ゲーム中)なら常に実行
         const now = Date.now();
-        const fireInterval = 75; // 発射間隔(ms) 75ms = 1秒間に約13.3発
+        const fireInterval = 50; // 発射間隔(ms) 75ms = 1秒間に約13.3発
 
         if (state.active && now - lastShot >= fireInterval) {
             // 前回の発射からの経過時間をチェックするため、nowで上書き
